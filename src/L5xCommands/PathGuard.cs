@@ -1,99 +1,100 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 
 namespace L5xCommands;
 
+/// <summary>
+/// Serializes work on a path across processes, sessions and users by holding an exclusive
+/// (<see cref="FileShare.None"/>) handle on a lock file inside <c>lockDirectory</c>.
+/// Unlike a machine-wide named kernel object, only accounts that can write to that directory
+/// (normally the repository's git directory) can create the lock file or open it to hold the lock.
+/// </summary>
 internal sealed class PathGuard : IDisposable
 {
-    private readonly Semaphore semaphore;
+    private const int RetryDelayMilliseconds = 100;
+    private const int ErrorSharingViolation = 32;
+    private const int ErrorLockViolation = 33;
 
-    private PathGuard(string path)
+    private readonly FileStream lockFile;
+
+    private PathGuard(FileStream lockFile)
     {
-        semaphore = new Semaphore(1, 1, GetSemaphoreName(path));
+        this.lockFile = lockFile;
     }
 
-    private bool Acquire(int millisecondsTimeout) => semaphore.WaitOne(millisecondsTimeout);
-    private void Release() => semaphore.Release();
-    public void Dispose() => semaphore.Dispose();
+    public void Dispose() => lockFile.Dispose();
 
-    private static string GetSemaphoreName(string path)
+    internal static string GetLockFilePath(string path, string lockDirectory)
     {
-        using var sha256 = SHA256.Create();
-        var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(Path.GetFullPath(path)));
-        var uniqueString = Convert.ToHexString(hashBytes);
-        return @$"Global\L5xSemaphore_{uniqueString}";
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(path)));
+        return Path.Combine(Path.GetFullPath(lockDirectory), $"l5xgit-{Convert.ToHexString(hashBytes)}.lock");
     }
 
-    public static async Task Guard(string path, int millisecondsTimeout, string timeoutExceptionText, Func<Task> action)
+    private static PathGuard Acquire(string path, string lockDirectory, int millisecondsTimeout, string timeoutExceptionText)
     {
-        using var mutex = new PathGuard(path);
-        bool acquired = mutex.Acquire(millisecondsTimeout);
+        ArgumentOutOfRangeException.ThrowIfLessThan(millisecondsTimeout, Timeout.Infinite);
 
-        if (!acquired)
-            throw new TimeoutException(timeoutExceptionText);
+        var lockFilePath = GetLockFilePath(path, lockDirectory);
+        var stopwatch = Stopwatch.StartNew();
 
-        try
+        while (true)
         {
-            await action();
-        }
-        finally
-        {
-            mutex.Release();
-        }
-    }
+            try
+            {
+                // The lock is the exclusive open handle, not the file's existence, so the file left behind after a
+                // run (or by a crashed process) does not block later runs. Write access is requested so that users
+                // who can merely read the repository cannot open the leftover file and squat on the lock.
+                return new PathGuard(new FileStream(lockFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+            }
+            catch (IOException ex) when (IsLockContention(ex))
+            {
+                var remaining = millisecondsTimeout == Timeout.Infinite
+                    ? RetryDelayMilliseconds
+                    : millisecondsTimeout - (int)stopwatch.ElapsedMilliseconds;
 
-    public static async Task<T> Guard<T>(string path, int millisecondsTimeout, string timeoutExceptionText, Func<Task<T>> func)
-    {
-        using var mutex = new PathGuard(path);
-        bool acquired = mutex.Acquire(millisecondsTimeout);
+                if (remaining <= 0)
+                    throw new TimeoutException(timeoutExceptionText, ex);
 
-        if (!acquired)
-            throw new TimeoutException(timeoutExceptionText);
-
-        try
-        {
-            return await func();
-        }
-        finally
-        {
-            mutex.Release();
+                Thread.Sleep(Math.Min(RetryDelayMilliseconds, remaining));
+            }
         }
     }
 
-    public static void Guard(string path, int millisecondsTimeout, string timeoutExceptionText, Action action)
+    private static bool IsLockContention(IOException ex)
     {
-        using var mutex = new PathGuard(path);
-        bool acquired = mutex.Acquire(millisecondsTimeout);
+        if (ex is FileNotFoundException or DirectoryNotFoundException or PathTooLongException)
+            return false;
 
-        if (!acquired)
-            throw new TimeoutException(timeoutExceptionText);
+        if (!OperatingSystem.IsWindows())
+            return true;
 
-        try
-        {
-            action();
-        }
-        finally
-        {
-            mutex.Release();
-        }
+        var win32Error = ex.HResult & 0xFFFF;
+        return win32Error is ErrorSharingViolation or ErrorLockViolation;
     }
 
-    public static T Guard<T>(string path, int millisecondsTimeout, string timeoutExceptionText, Func<T> func)
+    public static async Task Guard(string path, string lockDirectory, int millisecondsTimeout, string timeoutExceptionText, Func<Task> action)
     {
-        using var mutex = new PathGuard(path);
-        bool acquired = mutex.Acquire(millisecondsTimeout);
+        using var guard = Acquire(path, lockDirectory, millisecondsTimeout, timeoutExceptionText);
+        await action();
+    }
 
-        if (!acquired)
-            throw new TimeoutException(timeoutExceptionText);
+    public static async Task<T> Guard<T>(string path, string lockDirectory, int millisecondsTimeout, string timeoutExceptionText, Func<Task<T>> func)
+    {
+        using var guard = Acquire(path, lockDirectory, millisecondsTimeout, timeoutExceptionText);
+        return await func();
+    }
 
-        try
-        {
-            return func();
-        }
-        finally
-        {
-            mutex.Release();
-        }
+    public static void Guard(string path, string lockDirectory, int millisecondsTimeout, string timeoutExceptionText, Action action)
+    {
+        using var guard = Acquire(path, lockDirectory, millisecondsTimeout, timeoutExceptionText);
+        action();
+    }
+
+    public static T Guard<T>(string path, string lockDirectory, int millisecondsTimeout, string timeoutExceptionText, Func<T> func)
+    {
+        using var guard = Acquire(path, lockDirectory, millisecondsTimeout, timeoutExceptionText);
+        return func();
     }
 }
