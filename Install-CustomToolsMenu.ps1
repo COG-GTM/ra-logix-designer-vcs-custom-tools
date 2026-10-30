@@ -206,6 +206,64 @@ function Update-CustomToolsMenu {
     try { $xml.Save($writer) } finally { $writer.Dispose() }
 }
 
+function New-AdminOnlyDirectory {
+    <#
+    .SYNOPSIS
+        Creates $Path, and any missing parent folders, with the administrator-only ACL from the start.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+
+    $missing = [System.Collections.Generic.List[string]]::new()
+    $current = $Path
+    while ($current -and -not (Test-Path -LiteralPath $current)) {
+        $missing.Insert(0, $current)
+        $current = Split-Path -Path $current -Parent
+    }
+    foreach ($dir in $missing) {
+        # A folder that appeared in the meantime is left alone here and rejected by Assert-InstallLocationIsAdminOnly.
+        [System.IO.FileSystemAclExtensions]::Create([System.IO.DirectoryInfo]::new($dir), (New-AdminOnlyDirectorySecurity))
+    }
+}
+
+function Set-AdministratorsOwner {
+    <#
+    .SYNOPSIS
+        Makes BUILTIN\Administrators the owner of $Path and everything inside it, so no individual
+        account (e.g. the installing user, who may later lose admin rights) can re-permission them.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+
+    $sidType = [System.Security.Principal.SecurityIdentifier]
+    $admins = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+    $items = @(Get-Item -LiteralPath $Path -Force) + @(Get-ChildItem -LiteralPath $Path -Recurse -Force)
+    foreach ($item in $items) {
+        $acl = Get-Acl -LiteralPath $item.FullName
+        if ($acl.GetOwner($sidType).Value -ne $admins.Value) {
+            $acl.SetOwner($admins)
+            Set-Acl -LiteralPath $item.FullName -AclObject $acl
+        }
+    }
+}
+
+function Assert-InstallDirectoryIsReplaceable {
+    param([Parameter(Mandatory)][string]$Path)
+    $existing = Get-Item -LiteralPath $Path -Force
+    if (-not $existing.PSIsContainer -or ($existing.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        throw "'$Path' exists and is not a regular folder; remove it manually."
+    }
+    $hasContent = @(Get-ChildItem -LiteralPath $Path -Force).Count -gt 0
+    if ($hasContent -and -not (Test-Path -LiteralPath (Join-Path $Path $InstallMarkerName))) {
+        throw "'$Path' is not empty and was not created by this script; refusing to replace it."
+    }
+}
+
+function Remove-InstallDirectory {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    Assert-InstallDirectoryIsReplaceable -Path $Path
+    Remove-Item -LiteralPath $Path -Recurse -Force
+}
+
 # Allow the functions above to be dot-sourced (e.g. by tests) without running the installer.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
@@ -245,6 +303,9 @@ if (-not $isAdmin) {
     return
 }
 
+$stagingDir  = "$InstallDir.staging"
+$previousDir = "$InstallDir.previous"
+
 try {
     $destDir = Split-Path $destination -Parent
     if (-not (Test-Path -LiteralPath $destDir)) {
@@ -252,47 +313,61 @@ try {
     }
 
     $sourceFull = [System.IO.Path]::GetFullPath($sourceDir).TrimEnd('\') + '\'
-    if (($InstallDir + '\').StartsWith($sourceFull, [StringComparison]::OrdinalIgnoreCase) -or
-        $sourceFull.StartsWith($InstallDir + '\', [StringComparison]::OrdinalIgnoreCase)) {
-        throw "InstallDir must not overlap the build output folder: $InstallDir"
+    foreach ($dir in $InstallDir, $stagingDir, $previousDir) {
+        if (($dir + '\').StartsWith($sourceFull, [StringComparison]::OrdinalIgnoreCase) -or
+            $sourceFull.StartsWith($dir + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw "InstallDir must not overlap the build output folder: $dir"
+        }
     }
 
-    # The installing administrator may own the files it creates.
-    $currentUserSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-
-    # Create or lock down the install folder before anything is copied into it.
+    # Leftovers from an interrupted run.
+    Remove-InstallDirectory -Path $stagingDir
+    Remove-InstallDirectory -Path $previousDir
     if (Test-Path -LiteralPath $InstallDir) {
-        $existing = Get-Item -LiteralPath $InstallDir -Force
-        if (-not $existing.PSIsContainer -or ($existing.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-            throw "InstallDir exists and is not a regular folder: $InstallDir"
-        }
-        $hasContent = @(Get-ChildItem -LiteralPath $InstallDir -Force).Count -gt 0
-        if ($hasContent -and -not (Test-Path -LiteralPath (Join-Path $InstallDir $InstallMarkerName))) {
-            throw "InstallDir is not empty and was not created by this script; refusing to overwrite it: $InstallDir"
-        }
-        Set-Acl -LiteralPath $InstallDir -AclObject (New-AdminOnlyDirectorySecurity)
-    }
-    else {
-        $parent = Split-Path -Path $InstallDir -Parent
-        if (-not (Test-Path -LiteralPath $parent)) {
-            New-Item -ItemType Directory -Path $parent -Force | Out-Null
-        }
-        [System.IO.FileSystemAclExtensions]::Create([System.IO.DirectoryInfo]::new($InstallDir), (New-AdminOnlyDirectorySecurity))
+        Assert-InstallDirectoryIsReplaceable -Path $InstallDir
     }
 
-    Assert-InstallLocationIsAdminOnly -Path $InstallDir -AdditionalTrustedOwners $currentUserSid
+    # Stage and validate the new build next to the current installation, which stays in use until the swap.
+    New-AdminOnlyDirectory -Path $stagingDir
+    Assert-InstallLocationIsAdminOnly -Path $stagingDir
+    try {
+        Copy-Item -Path (Join-Path $sourceDir '*') -Destination $stagingDir -Recurse -Force
+        New-Item -ItemType File -Path (Join-Path $stagingDir $InstallMarkerName) -Force | Out-Null
+        Set-AdministratorsOwner -Path $stagingDir
 
-    # Replace the previous installation with the current build output.
-    Get-ChildItem -LiteralPath $InstallDir -Force | Remove-Item -Recurse -Force
-    Copy-Item -Path (Join-Path $sourceDir '*') -Destination $InstallDir -Recurse -Force
-    New-Item -ItemType File -Path (Join-Path $InstallDir $InstallMarkerName) -Force | Out-Null
+        $stagedMenu = Join-Path $stagingDir 'Assets\CustomToolsMenu.xml'
+        Update-CustomToolsMenu -MenuPath $stagedMenu -InstallDir $InstallDir -OutputPath $stagedMenu
+
+        # Every file Logix Designer will run or load must be administrator-only.
+        Assert-InstallLocationIsAdminOnly -Path $stagingDir
+
+        if (Test-Path -LiteralPath $InstallDir) {
+            Move-Item -LiteralPath $InstallDir -Destination $previousDir
+        }
+        try {
+            Move-Item -LiteralPath $stagingDir -Destination $InstallDir
+        }
+        catch {
+            if (Test-Path -LiteralPath $previousDir) {
+                Move-Item -LiteralPath $previousDir -Destination $InstallDir
+            }
+            throw
+        }
+    }
+    catch {
+        if (Test-Path -LiteralPath $stagingDir) {
+            Remove-Item -LiteralPath $stagingDir -Recurse -Force
+        }
+        throw
+    }
+
+    Assert-InstallLocationIsAdminOnly -Path $InstallDir
+    if (Test-Path -LiteralPath $previousDir) {
+        Remove-Item -LiteralPath $previousDir -Recurse -Force
+    }
+    Write-Host "Installed l5xgit to:`n  $InstallDir" -ForegroundColor Green
 
     $installedMenu = Join-Path $InstallDir 'Assets\CustomToolsMenu.xml'
-    Update-CustomToolsMenu -MenuPath $installedMenu -InstallDir $InstallDir -OutputPath $installedMenu
-
-    # Re-verify after copying: every file Logix Designer will run or load must be administrator-only.
-    Assert-InstallLocationIsAdminOnly -Path $InstallDir -AdditionalTrustedOwners $currentUserSid
-    Write-Host "Installed l5xgit to:`n  $InstallDir" -ForegroundColor Green
 
     # Backup existing file
     if (Test-Path -LiteralPath $destination) {

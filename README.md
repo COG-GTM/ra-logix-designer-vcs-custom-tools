@@ -145,14 +145,16 @@ A script is provided which self-elevates to Administrator and installs the tools
 
 The script:
 
-1. Copies the whole build output (`l5xgit.exe`, `l5xgit.dll`, the `.deps.json` / `.runtimeconfig.json` files, every
-   dependency DLL and the `Assets` folder) into `-InstallDir`, which defaults to
-   `%ProgramFiles%\Rockwell Software\l5xgit`. The folder gets an access control list that grants write access only to
-   Administrators and SYSTEM (Users can read and execute).
-2. Refuses to install if `-InstallDir`, anything inside it, or any of its parent folders can be modified, renamed or
-   re-permissioned by any other principal, or is a symbolic link / junction.
-3. Points every `<Command>` and `<ToolbarIcon>` in the installed `CustomToolsMenu.xml` at `-InstallDir`, backs up any
-   existing `CustomToolsMenu.xml`, and copies the new one into the Logix Designer common directory.
+1. Stages the whole build output (`l5xgit.exe`, `l5xgit.dll`, the `.deps.json` / `.runtimeconfig.json` files, every
+   dependency DLL and the `Assets` folder) in `<InstallDir>.staging`. That folder, and any missing parent folders, are
+   created with an access control list that grants write access only to Administrators and SYSTEM (Users can read and
+   execute), and every staged file is owned by the Administrators group.
+2. Refuses to install if the staged folder, anything inside it, or any of its parent folders can be modified, renamed
+   or re-permissioned by any other principal, or is a symbolic link / junction.
+3. Points every `<Command>` and `<ToolbarIcon>` in the staged `CustomToolsMenu.xml` at `-InstallDir` (default
+   `%ProgramFiles%\Rockwell Software\l5xgit`), then swaps the staged folder into place. The previous installation
+   stays in use until the swap and is restored if the swap fails.
+4. Backs up any existing `CustomToolsMenu.xml` and copies the new one into the Logix Designer common directory.
 
 Re-run the script after every rebuild to update the installed copy.
 
