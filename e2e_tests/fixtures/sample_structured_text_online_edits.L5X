@@ -12,8 +12,9 @@
     ProgramOnlineEdit - an untyped content alongside a typed one, so Routine.st and
                         Routine.Pending.st must coexist with Routine.xml
 
-  The OnlineEditType values are treated as opaque strings by the serializer; they are only
-  ever used to build and parse the file name.
+  The OnlineEditType values are only ever used to build and parse the file name, so the
+  serializer accepts nothing but letters, digits and underscores (see
+  malicious_structured_text_online_edit_traversal.L5X).
 -->
 <RSLogix5000Content SchemaRevision="1.0" SoftwareRevision="38.00" TargetName="StOnlineEditProject" TargetType="Controller" ContainsContext="false" Owner="TestUser" ExportDate="Mon Apr 07 10:00:00 2025" ExportOptions="NoRawData L5KData DecoratedData Dependencies ForceProtectedEncoding AllProjDocTrans">
   <Controller Use="Target" Name="StOnlineEditProject" ProcessorType="1756-L85E" MajorRev="38" MinorRev="11" TimeSlice="20" ShareUnusedTimeSlice="1" ProjectCreationDate="Mon Jan 01 00:00:00 2024" LastModifiedDate="Mon Apr 07 10:00:00 2025" SFCExecutionControl="CurrentActive" SFCRestartPosition="MostRecent" SFCLastScan="DontScan" ProjectSN="16#0000_0000" MatchProjectToController="false" CanUseRPIFromProducer="false" InhibitAutomaticFirmwareUpdate="0" PassThroughConfiguration="EnabledWithAppend" DownloadProjectDocumentationAndExtendedProperties="true" DownloadProjectCustomProperties="true" ReportMinorOverflow="false">

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Malicious structured text fixture: an OnlineEditType that tries to climb out of the
+  exploded directory. Exploding it must fail without writing escaped.st anywhere.
+-->
+<RSLogix5000Content SchemaRevision="1.0" SoftwareRevision="38.00" TargetName="StTraversalProject" TargetType="Controller" ContainsContext="false" Owner="TestUser" ExportDate="Mon Apr 07 10:00:00 2025" ExportOptions="NoRawData L5KData DecoratedData Dependencies ForceProtectedEncoding AllProjDocTrans">
+  <Controller Use="Target" Name="StTraversalProject" ProcessorType="1756-L85E" MajorRev="38" MinorRev="11" TimeSlice="20" ShareUnusedTimeSlice="1" ProjectCreationDate="Mon Jan 01 00:00:00 2024" LastModifiedDate="Mon Apr 07 10:00:00 2025" SFCExecutionControl="CurrentActive" SFCRestartPosition="MostRecent" SFCLastScan="DontScan" ProjectSN="16#0000_0000" MatchProjectToController="false" CanUseRPIFromProducer="false" InhibitAutomaticFirmwareUpdate="0" PassThroughConfiguration="EnabledWithAppend" DownloadProjectDocumentationAndExtendedProperties="true" DownloadProjectCustomProperties="true" ReportMinorOverflow="false">
+    <DataTypes />
+    <Modules>
+      <Module Name="Local" CatalogNumber="1756-L85E" Vendor="1" ProductType="14" ProductCode="166" Major="36" Minor="11" ParentModule="Local" ParentModPortId="1" Inhibited="false" MajorFault="true">
+        <EKey State="Disabled" />
+        <Ports>
+          <Port Id="1" Address="0" Type="ICP" Upstream="false" />
+        </Ports>
+      </Module>
+    </Modules>
+    <Tags />
+    <Programs>
+      <Program Name="MainProgram" TestEdits="false" MainRoutineName="ProgramOnlineEdit" Disabled="false" UseAsFolder="false">
+        <Tags />
+        <Routines>
+          <Routine Name="ProgramOnlineEdit" Type="ST">
+            <STContent>
+              <Line Number="0"><![CDATA[(* accepted content *)]]></Line>
+            </STContent>
+            <STContent OnlineEditType="/../../../../../../../escaped">
+              <Line Number="0"><![CDATA[(* planted logic *)]]></Line>
+            </STContent>
+          </Routine>
+        </Routines>
+      </Program>
+    </Programs>
+    <Tasks>
+      <Task Name="MainTask" Type="CONTINUOUS" Rate="10" Priority="10" Watchdog="500" DisableUpdateOutputs="false" InhibitTask="false">
+        <ScheduledPrograms>
+          <ScheduledProgram Name="MainProgram" />
+        </ScheduledPrograms>
+      </Task>
+    </Tasks>
+  </Controller>
+</RSLogix5000Content>
