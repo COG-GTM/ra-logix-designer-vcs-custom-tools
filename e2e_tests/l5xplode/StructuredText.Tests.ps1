@@ -345,3 +345,40 @@ Describe 'Structured text routines with online edits' {
         }
     }
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OnlineEditType ends up in a file name, so a crafted value must never be able to
+# place a .st file (or create a directory) outside the exploded directory.
+# ─────────────────────────────────────────────────────────────────────────────
+Describe 'Structured text OnlineEditType path traversal' {
+
+    BeforeAll {
+        $script:tempDir = New-TestTempDir -Prefix 'st_onlineedit_traversal'
+        $script:explodeDir = Join-Path $script:tempDir 'repo/project'
+        $l5xFile = Join-Path $fixturesDir 'malicious_structured_text_online_edit_traversal.L5X'
+
+        $script:explodeResult = Invoke-L5xplode @('explode', '--l5x', $l5xFile, '--dir', $script:explodeDir, '--force')
+    }
+
+    AfterAll {
+        $ProgressPreference = 'SilentlyContinue'
+        if (Test-Path $script:tempDir) { Remove-Item $script:tempDir -Recurse -Force }
+    }
+
+    It 'fails the explode' {
+        $script:explodeResult.ExitCode | Should -Not -Be 0
+    }
+
+    It 'reports the rejected OnlineEditType' {
+        ($script:explodeResult.StdOut + $script:explodeResult.StdErr) | Should -Match 'Invalid OnlineEditType'
+    }
+
+    It 'writes no .st file anywhere' {
+        @(Get-ChildItem $script:tempDir -Recurse -Filter '*.st').Count | Should -Be 0
+    }
+
+    It 'creates nothing outside the exploded directory' {
+        Join-Path $script:tempDir 'escaped.st' | Should -Not -Exist
+        @(Get-ChildItem $script:tempDir | Where-Object { $_.Name -ne 'repo' }).Count | Should -Be 0
+    }
+}
