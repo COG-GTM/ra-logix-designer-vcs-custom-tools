@@ -1,4 +1,5 @@
 
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using L5xploderLib.Models;
 using L5xploderLib.Services;
@@ -7,6 +8,10 @@ namespace L5xploderLib.Serialization;
 
 internal sealed class StructuredTextSerializer : ICustomSerializer
 {
+    // OnlineEditType becomes a file name infix, so it must stay a single plain segment
+    // (Logix Designer emits values such as Original, Pending and Test).
+    private static readonly Regex OnlineEditTypePattern = new("^[A-Za-z0-9_]+$", RegexOptions.CultureInvariant);
+
     private string fileExt => Constants.StructuredTextFileExtension;
 
     public IEnumerable<XElement> Deserialize(string folderPath, IEnumerable<XElement> elements)
@@ -101,6 +106,13 @@ internal sealed class StructuredTextSerializer : ICustomSerializer
         {
             // It's possible to have multiple <STContent> elements if it was edited online.
             var onlineEditType = stContentElement.Attribute("OnlineEditType")?.Value;
+
+            if (onlineEditType != null && !OnlineEditTypePattern.IsMatch(onlineEditType))
+            {
+                throw new InvalidDataException(
+                    $"Invalid OnlineEditType '{onlineEditType}' on <STContent> in {elementBaseFile}. Only letters, digits and underscores are allowed."
+                );
+            }
 
             // Generate the file path and name for the .st file
             var filePath = onlineEditType == null

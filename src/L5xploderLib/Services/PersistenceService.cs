@@ -31,6 +31,7 @@ internal abstract class PersistenceService : IPersistenceService
     public void Save(XDocument rootDoc, IEnumerable<ElementFile> elementFiles)
     {
         VerifyNoDuplicateElementFiles(elementFiles, FileExtension);
+        VerifyElementFilesInsideExplodedSubDir(elementFiles);
         InitializeExplodedSubDir();
         SaveElements(elementFiles, ExplodedSubDir);
         SaveRootImpl(rootDoc, RootDocumentPath);
@@ -146,7 +147,7 @@ internal abstract class PersistenceService : IPersistenceService
         {
             var dirsAtLevel = directories
                 .Where(dir => dir.Count(c => Path.DirectorySeparatorChar == c) == depth)
-                .Select(dir => Path.Combine(parentDir, dir))
+                .Select(dir => GetContainedPath(parentDir, dir))
                 .ToList();
 
             Parallel.ForEach(dirsAtLevel, directory => Directory.CreateDirectory(directory));
@@ -179,7 +180,7 @@ internal abstract class PersistenceService : IPersistenceService
 
     private void SaveCustomElement(CustomElementFile customFile)
     {
-        var absoluteFilePath = Path.Combine(ExplodedSubDir, customFile.FilePath);
+        var absoluteFilePath = GetContainedPath(ExplodedSubDir, customFile.FilePath);
         File.WriteAllText(absoluteFilePath, customFile.Content);
     }
 
@@ -211,13 +212,52 @@ internal abstract class PersistenceService : IPersistenceService
 
     protected string GetAbsoluteFilePath(string relativeFilePathWithoutExtension)
     {
-        return Path.Combine(ExplodedSubDir, relativeFilePathWithoutExtension + FileExtension);
+        return GetContainedPath(ExplodedSubDir, relativeFilePathWithoutExtension + FileExtension);
     }
 
     protected string GetAbsoluteFolderPath(string relativeFolderPath)
     {
-        return Path.Combine(ExplodedSubDir, relativeFolderPath);
+        return GetContainedPath(ExplodedSubDir, relativeFolderPath);
+    }
 
+    /// <summary>
+    /// Combines <paramref name="relativePath"/> onto <paramref name="rootDir"/> and throws if the
+    /// result resolves outside of <paramref name="rootDir"/> (e.g. via '..' segments or a rooted path).
+    /// </summary>
+    private static string GetContainedPath(string rootDir, string relativePath)
+    {
+        var fullRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDir));
+        var fullPath = Path.GetFullPath(Path.Combine(fullRoot, relativePath));
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (!string.Equals(fullPath, fullRoot, comparison)
+            && !fullPath.StartsWith(fullRoot + Path.DirectorySeparatorChar, comparison))
+        {
+            throw new InvalidDataException(
+                $"The path '{relativePath}' resolves outside of the exploded directory '{fullRoot}'.");
+        }
+
+        return fullPath;
+    }
+
+    private void VerifyElementFilesInsideExplodedSubDir(IEnumerable<ElementFile> elementFiles)
+    {
+        foreach (var file in elementFiles)
+        {
+            switch (file)
+            {
+                case L5xElementFile l5xFile:
+                    GetAbsoluteFilePath(l5xFile.BaseFilePath);
+                    break;
+                case CustomElementFile customFile:
+                    GetContainedPath(ExplodedSubDir, customFile.FilePath);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported element file type: {file.GetType().Name}");
+            }
+        }
     }
 
     private static void VerifyNoDuplicateElementFiles(IEnumerable<ElementFile> elementFiles, string defaultFileExt)
