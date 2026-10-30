@@ -257,3 +257,54 @@ Describe 'l5xplode explode' {
         }
     }
 }
+
+# Element names become path segments, so '..', Windows device names and trailing dots or
+# spaces must be rewritten rather than resolving to another folder or a device.
+Describe 'l5xplode explode with unsafe element names' {
+
+    BeforeAll {
+        $script:tempDir = New-TestTempDir -Prefix 'l5xplode_unsafe_names'
+        $script:content = Join-Path $script:tempDir 'RSLogix5000Content'
+        $script:outputL5x = Join-Path $script:tempDir 'imploded.L5X'
+        $l5xFile = Join-Path $fixturesDir 'unsafe_element_names.L5X'
+
+        $script:explodeResult = Invoke-L5xplode @('explode', '--l5x', $l5xFile, '--dir', $script:tempDir, '--force')
+        $script:implodeResult = Invoke-L5xplode @('implode', '--dir', $script:tempDir, '--l5x', $script:outputL5x, '--force')
+    }
+
+    AfterAll {
+        $ProgressPreference = 'SilentlyContinue'
+        if (Test-Path $script:tempDir) { Remove-Item $script:tempDir -Recurse -Force }
+    }
+
+    It 'explodes and implodes successfully' {
+        $script:explodeResult.ExitCode | Should -Be 0
+        $script:implodeResult.ExitCode | Should -Be 0
+    }
+
+    It "keeps the '..' program's children inside its own folder" {
+        Join-Path $script:content 'Programs/__/__.xml' | Should -Exist
+        Join-Path $script:content 'Programs/__/Tags/Foo.xml' | Should -Exist
+        Join-Path $script:content 'Programs/__/Routines/AUX_.st' | Should -Exist
+        Join-Path $script:content 'Routines' | Should -Not -Exist
+    }
+
+    It 'writes device and trailing-dot names to real files' {
+        Join-Path $script:content 'Tags/Foo.xml' | Should -Exist
+        Join-Path $script:content 'Tags/NUL_.xml' | Should -Exist
+        Join-Path $script:content 'Tags/CON_.txt.xml' | Should -Exist
+        Join-Path $script:content 'Tags/Trailing__.xml' | Should -Exist
+    }
+
+    It 'restores the original names and scopes on implode' {
+        [xml]$doc = Get-Content $script:outputL5x -Raw
+        $controllerTags = @($doc.RSLogix5000Content.Controller.Tags.Tag | ForEach-Object { $_.Name })
+        $controllerTags | Should -Be @('CON.txt', 'Foo', 'NUL', 'Trailing. ')
+
+        $program = $doc.RSLogix5000Content.Controller.Programs.Program | Where-Object { $_.Name -eq '..' }
+        $program | Should -Not -BeNullOrEmpty
+        @($program.Tags.Tag | ForEach-Object { $_.Name }) | Should -Be @('Foo')
+        $program.Routines.Routine.Name | Should -Be 'AUX'
+        @($program.Routines.Routine.STContent.Line).Count | Should -Be 1
+    }
+}

@@ -232,7 +232,7 @@ internal abstract class PersistenceService : IPersistenceService
 
         var duplicates = elementFileNames
             .Concat(customSerializedFileNames)
-            .GroupBy(fileName => fileName, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(FileHelpers.NormalizeRelativePath, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)
             .Select(group => group.Key);
 
