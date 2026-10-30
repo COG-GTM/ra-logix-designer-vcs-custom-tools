@@ -121,4 +121,44 @@ Describe 'Install-CustomToolsMenu.ps1' -Tag 'Windows' {
                 Should -Throw '*l5xgit.dll*'
         }
     }
+
+    Context 'Restore-InterruptedInstall' {
+        BeforeEach {
+            $installDir  = Join-Path $tempDir 'l5xgit'
+            $previousDir = "$installDir.previous"
+        }
+
+        It 'moves a trusted previous installation back when the install folder is missing' {
+            New-DirectoryWithInstallerAcl -Path $previousDir
+            New-Item -ItemType File -Path (Join-Path $previousDir $InstallMarkerName) | Out-Null
+            Set-Content -LiteralPath (Join-Path $previousDir 'l5xgit.exe') -Value 'old'
+
+            Restore-InterruptedInstall -InstallDir $installDir -PreviousDir $previousDir -AdditionalTrustedOwners $currentUserSid
+
+            Test-Path -LiteralPath $previousDir | Should -BeFalse
+            Get-Content -LiteralPath (Join-Path $installDir 'l5xgit.exe') | Should -Be 'old'
+        }
+
+        It 'leaves both folders alone when the install folder exists' {
+            New-DirectoryWithInstallerAcl -Path $installDir
+            New-DirectoryWithInstallerAcl -Path $previousDir
+
+            Restore-InterruptedInstall -InstallDir $installDir -PreviousDir $previousDir -AdditionalTrustedOwners $currentUserSid
+
+            Test-Path -LiteralPath $previousDir | Should -BeTrue
+        }
+
+        It 'refuses to restore a previous installation that Users can modify' {
+            New-Item -ItemType Directory -Path $previousDir | Out-Null
+            New-Item -ItemType File -Path (Join-Path $previousDir $InstallMarkerName) | Out-Null
+            $acl = Get-Acl -LiteralPath $previousDir
+            $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+                [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'), 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+            Set-Acl -LiteralPath $previousDir -AclObject $acl
+
+            { Restore-InterruptedInstall -InstallDir $installDir -PreviousDir $previousDir -AdditionalTrustedOwners $currentUserSid } |
+                Should -Throw '*tampered*'
+            Test-Path -LiteralPath $installDir | Should -BeFalse
+        }
+    }
 }

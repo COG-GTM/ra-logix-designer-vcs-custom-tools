@@ -264,6 +264,42 @@ function Remove-InstallDirectory {
     Remove-Item -LiteralPath $Path -Recurse -Force
 }
 
+function Assert-ExistingInstallIsTrusted {
+    <#
+    .SYNOPSIS
+        Throws unless an existing installation was created by this script and is still administrator-only,
+        so it is safe to keep as the rollback copy (or restore as the live installation).
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [string[]]$AdditionalTrustedOwners = @()
+    )
+    Assert-InstallDirectoryIsReplaceable -Path $Path
+    try {
+        Assert-InstallLocationIsAdminOnly -Path $Path -AdditionalTrustedOwners $AdditionalTrustedOwners
+    }
+    catch {
+        throw "The existing installation in '$Path' may have been tampered with; inspect and remove it manually, then re-run.`n$_"
+    }
+}
+
+function Restore-InterruptedInstall {
+    <#
+    .SYNOPSIS
+        If a previous run stopped between moving $InstallDir to $PreviousDir and moving the new build into place,
+        puts the (validated) previous installation back so the registered tools keep working.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$InstallDir,
+        [Parameter(Mandatory)][string]$PreviousDir,
+        [string[]]$AdditionalTrustedOwners = @()
+    )
+    if ((Test-Path -LiteralPath $InstallDir) -or -not (Test-Path -LiteralPath $PreviousDir)) { return }
+    Assert-ExistingInstallIsTrusted -Path $PreviousDir -AdditionalTrustedOwners $AdditionalTrustedOwners
+    Move-Item -LiteralPath $PreviousDir -Destination $InstallDir
+    Write-Host "Restored the installation left in '$PreviousDir' by an interrupted run." -ForegroundColor Yellow
+}
+
 # Allow the functions above to be dot-sourced (e.g. by tests) without running the installer.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
@@ -320,11 +356,12 @@ try {
         }
     }
 
-    # Leftovers from an interrupted run.
+    # Leftovers from an interrupted run. A .previous folder without a live installation is the only working copy.
     Remove-InstallDirectory -Path $stagingDir
+    Restore-InterruptedInstall -InstallDir $InstallDir -PreviousDir $previousDir
     Remove-InstallDirectory -Path $previousDir
     if (Test-Path -LiteralPath $InstallDir) {
-        Assert-InstallDirectoryIsReplaceable -Path $InstallDir
+        Assert-ExistingInstallIsTrusted -Path $InstallDir
     }
 
     # Stage and validate the new build next to the current installation, which stays in use until the swap.
