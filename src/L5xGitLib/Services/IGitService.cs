@@ -11,6 +11,12 @@ public interface IGitService : IDisposable
     string RepoRoot { get; }
 
     /// <summary>
+    /// Returns the keys set in the repository's own configuration (not the user's global or system
+    /// configuration) that make the git command line run a program, e.g. <c>difftool.&lt;name&gt;.cmd</c>.
+    /// </summary>
+    IReadOnlyList<string> GetRepositoryCommandSettings();
+
+    /// <summary>
     /// Stages all changes under the specified folder path.
     /// Returns <c>false</c> if the repository is not in a state that allows staging (e.g. unresolved merge).
     /// </summary>

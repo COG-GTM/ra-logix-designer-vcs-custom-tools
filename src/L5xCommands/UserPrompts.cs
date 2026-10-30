@@ -42,7 +42,12 @@ internal static class UserPrompts
         return config;
     }
 
-    public static L5xGitConfig InitializeConfigPromptIfNeeded(string acdPath, IOperationEvent? logger)
+    /// <summary>
+    /// Loads the ACD's configuration, prompting to create it when missing. Throws
+    /// <see cref="DestinationNotApprovedException"/> when an existing configuration names a destination
+    /// the user has not approved and declines to approve.
+    /// </summary>
+    public static L5xGitConfig InitializeConfigPromptIfNeeded(string acdPath, bool trustDestination, IOperationEvent? logger)
     {
         var configFilePath = Paths.GetL5xConfigFilePathFromAcdPath(acdPath);
 
@@ -55,6 +60,11 @@ internal static class UserPrompts
 
             logger?.Status(configFilePath, "Saving configuration file...");
             config.Save(configFilePath);
+            DestinationTrust.Remember(acdPath, config.DestinationPath);
+        }
+        else
+        {
+            DestinationTrust.EnsureTrusted(acdPath, configFilePath, config.DestinationPath, trustDestination);
         }
 
         return config;
@@ -89,18 +99,35 @@ internal static class UserPrompts
         string? destPath = null;
         do
         {
-            destPath = PromptForDirectory("Directory: ").Trim();
+            var input = PromptForDirectory("Directory: ").Trim();
 
-        }
-        while (string.IsNullOrWhiteSpace(destPath));
+            // Relative input is resolved here, against the directory the user is working in.
+            if (!string.IsNullOrWhiteSpace(input) && !Path.IsPathRooted(input))
+            {
+                input = Path.GetFullPath(input);
+            }
 
-        // Ensure the destination path is absolute before saving the config.
-        if (!Path.IsPathRooted(destPath))
-        {
-            destPath = Path.GetFullPath(destPath);
+            destPath = DestinationPath.TryNormalize(input, out var error);
+            if (destPath is null)
+            {
+                Console.WriteLine($"Invalid directory: {error}.");
+            }
         }
+        while (destPath is null);
 
         return destPath;
+    }
+
+    public static bool PromptToTrustDestination(string acdPath, string configFilePath, string destinationPath)
+    {
+        Console.WriteLine("");
+        Console.WriteLine($"The configuration file '{configFilePath}'");
+        Console.WriteLine($"names the Git destination '{destinationPath}'");
+        Console.WriteLine($"for '{acdPath}', and you have not approved that destination for this project.");
+        Console.WriteLine("This file can arrive with a project folder from someone else. Approving it lets l5xgit write the");
+        Console.WriteLine("project into that folder, commit it to the Git repository that contains it, and run git there.");
+        Console.WriteLine("Only approve a folder you chose yourself.");
+        return PromptYesNo($"Use '{destinationPath}' for this project?");
     }
 
     public static bool PromptForCommitMessageRequiredOnEachCommit()

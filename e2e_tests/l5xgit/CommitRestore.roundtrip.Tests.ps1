@@ -117,7 +117,7 @@ Describe 'l5xgit commit with Dependencies fixture' -Tag 'SDK' {
     Context 'commit raC_Opr_HTTP_Client_deps to a git repo' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:depsFixture -Prefix 'commit_deps'
-            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--trust-destination')
         }
 
         AfterAll {
@@ -190,7 +190,7 @@ Describe 'l5xgit commit with no-deps fixture' -Tag 'SDK' {
     Context 'commit without --unsafe-skip-dependency-check succeeds (SDK re-export includes Dependencies)' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:noDepsFixture -Prefix 'commit_nodeps_sdk'
-            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--trust-destination')
         }
 
         AfterAll {
@@ -232,7 +232,7 @@ Describe 'l5xgit commit with no-deps fixture' -Tag 'SDK' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:noDepsFixture -Prefix 'commit_nodeps_ok'
             $script:result = Invoke-L5xgit @(
-                'commit', '--acd', $script:env.AcdPath, '--unsafe-skip-dependency-check'
+                'commit', '--acd', $script:env.AcdPath, '--trust-destination', '--unsafe-skip-dependency-check'
             )
         }
 
@@ -285,7 +285,7 @@ Describe 'l5xgit commit then restoreacd round-trip (deps)' -Tag 'SDK' {
     Context 'restore ACD from a committed repo' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:depsFixture -Prefix 'restore_deps'
-            $commitResult = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+            $commitResult = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--trust-destination')
             if ($commitResult.ExitCode -ne 0) { throw "commit failed: $($commitResult.StdErr)" }
 
             $script:restoredAcd = Join-Path $script:env.AcdDir 'restored.acd'
@@ -293,7 +293,7 @@ Describe 'l5xgit commit then restoreacd round-trip (deps)' -Tag 'SDK' {
             "destination_path: $($script:env.GitRepoDir)`nprompt_for_commit_message: false" |
                 Set-Content -Path $restoredConfigPath -Encoding UTF8
 
-            $script:restoreResult = Invoke-L5xgit @('restoreacd', '--acd', $script:restoredAcd)
+            $script:restoreResult = Invoke-L5xgit @('restoreacd', '--acd', $script:restoredAcd, '--trust-destination')
         }
 
         AfterAll {
@@ -326,7 +326,7 @@ Describe 'l5xgit full round-trip L5X-ACD-commit-restoreacd-ACD-L5X (deps)' -Tag 
     Context 'round-tripped L5X preserves structure' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:depsFixture -Prefix 'fullrt_deps'
-            $commitResult = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+            $commitResult = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--trust-destination')
             if ($commitResult.ExitCode -ne 0) { throw "commit failed: $($commitResult.StdErr)" }
 
             $script:restoredAcd = Join-Path $script:env.AcdDir 'roundtrip.acd'
@@ -334,7 +334,7 @@ Describe 'l5xgit full round-trip L5X-ACD-commit-restoreacd-ACD-L5X (deps)' -Tag 
             "destination_path: $($script:env.GitRepoDir)`nprompt_for_commit_message: false" |
                 Set-Content -Path $rtConfigPath -Encoding UTF8
 
-            $restoreResult = Invoke-L5xgit @('restoreacd', '--acd', $script:restoredAcd)
+            $restoreResult = Invoke-L5xgit @('restoreacd', '--acd', $script:restoredAcd, '--trust-destination')
             if ($restoreResult.ExitCode -ne 0) { throw "restoreacd failed: $($restoreResult.StdErr)" }
 
             $script:roundTrippedL5x = Join-Path $script:env.AcdDir 'roundtrip_output.L5X'
@@ -411,7 +411,7 @@ Describe 'l5xgit full round-trip with no-deps and --unsafe-skip-dependency-check
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:noDepsFixture -Prefix 'fullrt_nodeps'
             $commitResult = Invoke-L5xgit @(
-                'commit', '--acd', $script:env.AcdPath, '--unsafe-skip-dependency-check'
+                'commit', '--acd', $script:env.AcdPath, '--trust-destination', '--unsafe-skip-dependency-check'
             )
             if ($commitResult.ExitCode -ne 0) { throw "commit failed: $($commitResult.StdErr)" }
 
@@ -420,7 +420,7 @@ Describe 'l5xgit full round-trip with no-deps and --unsafe-skip-dependency-check
             "destination_path: $($script:env.GitRepoDir)`nprompt_for_commit_message: false" |
                 Set-Content -Path $rtConfigPath -Encoding UTF8
 
-            $restoreResult = Invoke-L5xgit @('restoreacd', '--acd', $script:restoredAcd)
+            $restoreResult = Invoke-L5xgit @('restoreacd', '--acd', $script:restoredAcd, '--trust-destination')
             if ($restoreResult.ExitCode -ne 0) { throw "restoreacd failed: $($restoreResult.StdErr)" }
 
             $script:roundTrippedL5x = Join-Path $script:env.AcdDir 'roundtrip_nodeps_output.L5X'
@@ -480,7 +480,7 @@ Describe 'l5xgit subsequent commit inherits saved unsafe flag' -Tag 'SDK' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:noDepsFixture -Prefix 'inherit_unsafe'
             $first = Invoke-L5xgit @(
-                'commit', '--acd', $script:env.AcdPath, '--unsafe-skip-dependency-check'
+                'commit', '--acd', $script:env.AcdPath, '--trust-destination', '--unsafe-skip-dependency-check'
             )
             if ($first.ExitCode -ne 0) { throw "first commit failed: $($first.StdErr)" }
 
@@ -488,7 +488,7 @@ Describe 'l5xgit subsequent commit inherits saved unsafe flag' -Tag 'SDK' {
                 Write-Host "[DEBUG] First commit done. Running second without --unsafe..." -ForegroundColor DarkCyan
             }
 
-            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--trust-destination')
         }
 
         AfterAll {
