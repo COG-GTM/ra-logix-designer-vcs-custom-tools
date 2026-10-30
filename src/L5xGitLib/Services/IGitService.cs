@@ -11,6 +11,11 @@ public interface IGitService : IDisposable
     string RepoRoot { get; }
 
     /// <summary>
+    /// Gets the repository's git directory (for example <c>.git</c>).
+    /// </summary>
+    string GitDirectory { get; }
+
+    /// <summary>
     /// Stages all changes under the specified folder path.
     /// Returns <c>false</c> if the repository is not in a state that allows staging (e.g. unresolved merge).
     /// </summary>

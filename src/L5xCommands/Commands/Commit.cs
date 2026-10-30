@@ -101,6 +101,7 @@ public static class Commit
     {
         await PathGuard.Guard(
             path: config.DestinationPath,
+            lockDirectory: gitService.GitDirectory,
             millisecondsTimeout: 0,
             timeoutExceptionText: $"Unable to acquire lock on \"{config.DestinationPath}\". Another instance of this process may be running.",
             action: async () =>
