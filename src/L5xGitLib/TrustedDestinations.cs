@@ -18,7 +18,7 @@ public sealed class TrustedDestinations
 
     public TrustedDestinations(string storePath)
     {
-        this.storePath = storePath;
+        this.storePath = Path.GetFullPath(storePath);
     }
 
     public string StorePath => storePath;
@@ -53,13 +53,35 @@ public sealed class TrustedDestinations
     public void Trust(string acdPath, string destinationPath)
     {
         var acd = Normalize(acdPath);
-        var entries = Load().Where(e => !string.Equals(e.AcdPath, acd, PathComparison)).ToList();
-        entries.Add(new Entry { AcdPath = acd, DestinationPath = Normalize(destinationPath) });
+        var destination = Normalize(destinationPath);
 
         Directory.CreateDirectory(Path.GetDirectoryName(storePath)!);
+
+        // Serializes the read-modify-write across l5xgit processes so concurrent confirmations are not lost.
+        using var storeLock = AcquireLock();
+
+        var entries = Load().Where(e => !string.Equals(e.AcdPath, acd, PathComparison)).ToList();
+        entries.Add(new Entry { AcdPath = acd, DestinationPath = destination });
+
         var tempPath = $"{storePath}.{Guid.NewGuid():N}.tmp";
         File.WriteAllText(tempPath, JsonSerializer.Serialize(entries, JsonOptions));
         File.Move(tempPath, storePath, overwrite: true);
+    }
+
+    private FileStream AcquireLock()
+    {
+        var lockPath = storePath + ".lock";
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException) when (attempt < 200)
+            {
+                Thread.Sleep(50);
+            }
+        }
     }
 
     private static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));

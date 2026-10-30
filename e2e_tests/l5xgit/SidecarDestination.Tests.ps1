@@ -119,4 +119,20 @@ Describe 'l5xgit with an unconfirmed _L5xGit.yml destination' {
         "$($result.StdOut)$($result.StdErr)" | Should -Match 'must be an absolute path'
         Get-CommitCount $script:env.RepoDir | Should -Be 1
     }
+
+    It 'commit refuses when the index already holds staged changes outside RSLogix5000Content' {
+        $script:env = New-SidecarTestEnvironment
+        $unrelated = Join-Path $script:env.RepoDir 'unrelated.txt'
+        'not part of the project' | Set-Content -Path $unrelated -Encoding UTF8
+        Push-Location $script:env.RepoDir
+        try { git add unrelated.txt 2>&1 | Out-Null }
+        finally { Pop-Location }
+
+        $result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--trust-config')
+
+        $result.ExitCode | Should -Not -Be 0
+        "$($result.StdOut)$($result.StdErr)" | Should -Match 'staged changes outside'
+        Get-CommitCount $script:env.RepoDir | Should -Be 1
+        $script:env.KeptFile | Should -Exist
+    }
 }

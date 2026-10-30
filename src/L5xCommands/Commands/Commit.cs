@@ -128,6 +128,13 @@ public static class Commit
             return false;
         }
 
+        // Checked before anything is written or staged so a refusal leaves the user's index untouched.
+        var contentDir = Paths.GetExplodedSubDir(config.DestinationPath);
+        if (HasUnrelatedStagedPaths(gitService, contentDir, config.DestinationPath, logger))
+        {
+            return false;
+        }
+
         logger?.Status(acdPath, "Copying ACD to temp path...");
         var tempAcdFile = TempFile.CopyToTempPath(acdPath);
         var tempL5xFile = TempFile.FromTempFileWithNewExtension(tempAcdFile, ".L5X");
@@ -143,10 +150,16 @@ public static class Commit
         logger?.Status(config.DestinationPath, "Commit message is:" + System.Environment.NewLine + commitMessage);
 
         // Only stage what this tool just wrote, never other files that happen to live under the destination.
-        var staged = gitService.Stage(Paths.GetExplodedSubDir(config.DestinationPath));
+        var staged = gitService.Stage(contentDir);
         if (!staged)
         {
             logger?.Error(config.DestinationPath, "Repository is not in an appropriate state to stage changes.");
+            return false;
+        }
+
+        // The commit takes the whole index, and the index may have changed while the ACD was being converted.
+        if (HasUnrelatedStagedPaths(gitService, contentDir, config.DestinationPath, logger))
+        {
             return false;
         }
         var commit = await gitService.CommitAsync(commitMessage);
@@ -160,6 +173,21 @@ public static class Commit
             logger?.Status(config.DestinationPath, "You can now push your changes to the remote repository.");
         }
 
+        return true;
+    }
+
+    static bool HasUnrelatedStagedPaths(IGitService gitService, string contentDir, string destinationPath, IOperationEvent? logger)
+    {
+        var unrelatedStagedPaths = gitService.GetStagedPathsOutside(contentDir);
+        if (unrelatedStagedPaths.Count == 0)
+        {
+            return false;
+        }
+
+        logger?.Error(destinationPath,
+            $"The Git index already contains staged changes outside \"{contentDir}\". Commit or unstage them before running l5xgit commit:"
+            + System.Environment.NewLine
+            + string.Join(System.Environment.NewLine, unrelatedStagedPaths.Select(path => "  " + path)));
         return true;
     }
 
