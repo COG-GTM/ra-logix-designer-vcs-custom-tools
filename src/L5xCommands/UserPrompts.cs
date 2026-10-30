@@ -167,9 +167,14 @@ internal static class UserPrompts
         Console.WriteLine("");
         Console.WriteLine($"The configuration file '{configFilePath}' sets the commit destination for");
         Console.WriteLine($"  '{destination.AcdPath}'");
-        Console.WriteLine("to a directory you have not confirmed on this computer:");
+        Console.WriteLine("to settings you have not confirmed on this computer:");
         Console.WriteLine($"  Destination:     {destination.DestinationPath}");
         Console.WriteLine($"  Git repository:  {(destination.RepoRootChecked ? destination.RepoRoot ?? "(none found)" : "(not checked until you confirm the network path)")}");
+
+        if (!destination.PromptForCommitMessage)
+        {
+            Console.WriteLine("The configuration file turns off the commit message prompt, so the commit will not ask for a message.");
+        }
 
         if (destination.IsNetworkPath)
         {

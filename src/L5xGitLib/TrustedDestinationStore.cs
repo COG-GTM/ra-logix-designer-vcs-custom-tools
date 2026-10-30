@@ -26,9 +26,10 @@ public sealed class TrustedDestinationStore
 
     /// <summary>
     /// True when the user has confirmed exactly this destination, committing into exactly this repository root,
-    /// for this ACD. A changed destination or a repository that now resolves to a different root is not trusted.
+    /// for this ACD. A changed destination, a repository that now resolves to a different root, or a sidecar that
+    /// turned off the commit message prompt the user confirmed with is not trusted.
     /// </summary>
-    public bool IsTrusted(string acdPath, string destinationPath, string? repoRoot)
+    public bool IsTrusted(string acdPath, string destinationPath, string? repoRoot, bool promptForCommitMessage)
     {
         if (repoRoot is null)
         {
@@ -38,7 +39,8 @@ public sealed class TrustedDestinationStore
         return Load().Any(entry =>
             CommitDestination.PathsEqual(entry.AcdPath, acdPath) &&
             CommitDestination.PathsEqual(entry.DestinationPath, destinationPath) &&
-            CommitDestination.PathsEqual(entry.RepoRoot, repoRoot));
+            CommitDestination.PathsEqual(entry.RepoRoot, repoRoot) &&
+            (promptForCommitMessage || !entry.PromptForCommitMessage));
     }
 
     /// <summary>
@@ -49,8 +51,17 @@ public sealed class TrustedDestinationStore
             CommitDestination.PathsEqual(entry.AcdPath, acdPath) &&
             CommitDestination.PathsEqual(entry.DestinationPath, destinationPath));
 
-    public void Trust(string acdPath, string destinationPath, string repoRoot)
+    public void Trust(string acdPath, string destinationPath, string repoRoot, bool promptForCommitMessage)
     {
+        var directory = Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        // Serializes the read-modify-write across processes committing different ACDs at the same time.
+        using var storeLock = AcquireLock();
+
         var entries = Load()
             .Where(entry => !CommitDestination.PathsEqual(entry.AcdPath, acdPath))
             .ToList();
@@ -60,21 +71,39 @@ public sealed class TrustedDestinationStore
             AcdPath = acdPath,
             DestinationPath = destinationPath,
             RepoRoot = repoRoot,
+            PromptForCommitMessage = promptForCommitMessage,
         });
-
-        var directory = Path.GetDirectoryName(filePath);
-        if (!string.IsNullOrEmpty(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
 
         var serializer = new SerializerBuilder()
             .WithIndentedSequences()
             .Build();
 
-        var tempPath = filePath + ".tmp";
-        File.WriteAllText(tempPath, serializer.Serialize(new TrustedDestinationFile { Destinations = entries }));
-        File.Move(tempPath, filePath, overwrite: true);
+        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(tempPath, serializer.Serialize(new TrustedDestinationFile { Destinations = entries }));
+            File.Move(tempPath, filePath, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    private FileStream AcquireLock()
+    {
+        var lockPath = filePath + ".lock";
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException) when (attempt < 100)
+            {
+                Thread.Sleep(50);
+            }
+        }
     }
 
     private List<TrustedDestination> Load()
@@ -112,5 +141,8 @@ public sealed class TrustedDestinationStore
 
         [YamlMember(Alias = "repo_root")]
         public string RepoRoot { get; set; } = string.Empty;
+
+        [YamlMember(Alias = "prompt_for_commit_message")]
+        public bool PromptForCommitMessage { get; set; } = true;
     }
 }

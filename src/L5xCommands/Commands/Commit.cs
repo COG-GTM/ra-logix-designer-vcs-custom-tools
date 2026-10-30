@@ -46,6 +46,12 @@ public static class Commit
         logger?.Status(configFilePath, "Loading configuration file...");
         var config = L5xGitConfig.LoadFromFile(configFilePath);
 
+        if (config is null && confirmDestination is not null)
+        {
+            logger?.Error(configFilePath, "--confirm-destination requires an existing configuration file. Run the commit once without it to choose the destination.");
+            return 1;
+        }
+
         if (config is null)
         {
             logger?.Status(configFilePath, "Configuration file not found...");
@@ -66,10 +72,10 @@ public static class Commit
             if (gitService is null)
                 return 1;
 
-            // The user typed this destination themselves, so it is confirmed for this ACD.
-            trustStore.Trust(CommitDestination.NormalizeAcdPath(acdPath), destPath, gitService.RepoRoot);
-
             var promptForCommitMessage = UserPrompts.PromptForCommitMessageRequiredOnEachCommit();
+
+            // The user chose these settings themselves, so they are confirmed for this ACD.
+            trustStore.Trust(CommitDestination.NormalizeAcdPath(acdPath), destPath, gitService.RepoRoot, promptForCommitMessage);
 
             config = new L5xGitConfig
             {
@@ -102,7 +108,7 @@ public static class Commit
 
             if (confirmDestination is null && !destination.IsTrusted)
             {
-                trustStore.Trust(destination.AcdPath, destination.DestinationPath, gitService.RepoRoot);
+                trustStore.Trust(destination.AcdPath, destination.DestinationPath, gitService.RepoRoot, destination.PromptForCommitMessage);
             }
 
             var verifiedConfig = new L5xGitConfig
@@ -126,7 +132,7 @@ public static class Commit
         CommitDestination destination;
         try
         {
-            destination = CommitDestination.Evaluate(acdPath, config.DestinationPath, trustStore, DiscoverRepoRoot);
+            destination = CommitDestination.Evaluate(acdPath, config.DestinationPath, config.PromptForCommitMessage, trustStore, DiscoverRepoRoot);
         }
         catch (InvalidCommitDestinationException ex)
         {

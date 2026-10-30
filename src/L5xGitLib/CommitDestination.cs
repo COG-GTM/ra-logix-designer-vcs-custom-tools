@@ -11,6 +11,7 @@ public sealed record CommitDestination(
     string? RepoRoot,
     bool RepoRootChecked,
     bool IsNetworkPath,
+    bool PromptForCommitMessage,
     bool IsTrusted)
 {
     /// <summary>
@@ -26,6 +27,7 @@ public sealed record CommitDestination(
     public static CommitDestination Evaluate(
         string acdPath,
         string configuredDestination,
+        bool promptForCommitMessage,
         TrustedDestinationStore trustStore,
         Func<string, string?> discoverRepoRoot)
     {
@@ -42,7 +44,8 @@ public sealed record CommitDestination(
             RepoRoot: repoRoot,
             RepoRootChecked: checkRepoRoot,
             IsNetworkPath: isNetworkPath,
-            IsTrusted: trustStore.IsTrusted(fullAcdPath, destination, repoRoot));
+            PromptForCommitMessage: promptForCommitMessage,
+            IsTrusted: trustStore.IsTrusted(fullAcdPath, destination, repoRoot, promptForCommitMessage));
     }
 
     public static string? NormalizeRepoRoot(string? repoRoot) =>

@@ -86,12 +86,13 @@ together with the Git repository root the destination resolved to.
 Before anything is deleted or committed, `l5xgit commit` asks you to confirm the destination when:
 
 - the ACD has no confirmed destination yet, or the `destination_path` in the yml changed;
+- the yml turns off `prompt_for_commit_message` after you confirmed it with the prompt on;
 - the destination now resolves to a different Git repository root;
 - the destination is a network (UNC or mapped network drive) path, which is not probed until you confirm it;
 - the destination is inside a Git repository rather than at its root (the prompt names the enclosing repository).
 
 Relative destinations are rejected. For unattended use, pass the expected destination explicitly; the commit is
-refused if the yml points anywhere else:
+refused if the yml points anywhere else. The yml must already exist (run the first commit interactively):
 
 ```sh
 l5xgit commit --acd path/to/project.ACD --confirm-destination C:\path\to\repo
