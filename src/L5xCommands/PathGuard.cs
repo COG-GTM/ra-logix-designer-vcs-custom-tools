@@ -42,8 +42,9 @@ internal sealed class PathGuard : IDisposable
         {
             try
             {
-                // The file is intentionally left behind: the lock is the open handle, not the file's existence.
-                return new PathGuard(new FileStream(lockFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+                // The lock is the exclusive open handle, not the file's existence, so the file is left behind.
+                // Read access suffices for an existing file, so users other than its creator can take the lock.
+                return new PathGuard(new FileStream(lockFilePath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.None));
             }
             catch (IOException ex) when (IsLockContention(ex))
             {
