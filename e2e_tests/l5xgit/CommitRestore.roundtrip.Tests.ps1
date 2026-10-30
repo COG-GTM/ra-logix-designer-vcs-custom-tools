@@ -511,3 +511,82 @@ Describe 'l5xgit subsequent commit inherits saved unsafe flag' -Tag 'SDK' {
         }
     }
 }
+
+Describe 'l5xgit commit only commits RSLogix5000Content' -Tag 'SDK' {
+
+    Context 'destination folder contains unrelated files' {
+        BeforeAll {
+            $script:env = New-CommitTestEnvironment -L5xFixture $script:depsFixture -Prefix 'commit_scope'
+            'not for the repo' | Set-Content -Path (Join-Path $script:env.GitRepoDir 'vendor-passwords.txt')
+            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+
+            Push-Location $script:env.GitRepoDir
+            try {
+                $script:committedFiles = git --no-pager show --name-only --pretty=format: HEAD | Where-Object { $_ }
+                $script:untrackedFiles = git ls-files --others --exclude-standard
+            }
+            finally { Pop-Location }
+        }
+
+        AfterAll {
+            $ProgressPreference = 'SilentlyContinue'
+            if (Test-Path $script:env.RootDir) { Remove-Item $script:env.RootDir -Recurse -Force }
+        }
+
+        It 'exits with code 0' {
+            Assert-WithPause -Paths @($script:env.RootDir) -Assertion {
+                $script:result.ExitCode | Should -Be 0
+            }
+        }
+
+        It 'commits only files under RSLogix5000Content' {
+            Assert-WithPause -Paths @($script:env.GitRepoDir) -Assertion {
+                $script:committedFiles | Should -Not -BeNullOrEmpty
+                $script:committedFiles | ForEach-Object { $_ | Should -Match '^RSLogix5000Content/' }
+            }
+        }
+
+        It 'leaves the unrelated file untracked' {
+            Assert-WithPause -Paths @($script:env.GitRepoDir) -Assertion {
+                $script:untrackedFiles | Should -Contain 'vendor-passwords.txt'
+            }
+        }
+    }
+
+    Context 'index already has staged changes outside RSLogix5000Content' {
+        BeforeAll {
+            $script:env = New-CommitTestEnvironment -L5xFixture $script:depsFixture -Prefix 'commit_scope_staged'
+            Push-Location $script:env.GitRepoDir
+            try {
+                'staged elsewhere' | Set-Content -Path 'notes.txt'
+                git add notes.txt
+            }
+            finally { Pop-Location }
+
+            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+
+            Push-Location $script:env.GitRepoDir
+            try {
+                $script:commitCount = (git --no-pager log --oneline 2>$null | Measure-Object).Count
+            }
+            finally { Pop-Location }
+        }
+
+        AfterAll {
+            $ProgressPreference = 'SilentlyContinue'
+            if (Test-Path $script:env.RootDir) { Remove-Item $script:env.RootDir -Recurse -Force }
+        }
+
+        It 'does not create a commit' {
+            Assert-WithPause -Paths @($script:env.GitRepoDir) -Assertion {
+                $script:commitCount | Should -Be 0
+            }
+        }
+
+        It 'reports the unrelated staged path' {
+            Assert-WithPause -Paths @($script:env.RootDir) -Assertion {
+                ($script:result.StdOut + $script:result.StdErr) | Should -Match 'notes\.txt'
+            }
+        }
+    }
+}

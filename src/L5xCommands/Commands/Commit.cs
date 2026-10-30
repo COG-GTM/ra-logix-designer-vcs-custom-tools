@@ -133,10 +133,27 @@ public static class Commit
 
         logger?.Status(config.DestinationPath, "Commit message is:" + System.Environment.NewLine + commitMessage);
 
-        var staged = gitService.Stage(config.DestinationPath);
+        if (!IsSamePath(gitService.RepoRoot, config.DestinationPath))
+        {
+            logger?.Status(config.DestinationPath, $"Using Git repository at \"{gitService.RepoRoot}\".");
+        }
+
+        // Only stage the content the tool generated, never other files the user keeps in the destination folder.
+        var contentDir = Paths.GetExplodedSubDir(config.DestinationPath);
+        var staged = gitService.Stage(contentDir);
         if (!staged)
         {
             logger?.Error(config.DestinationPath, "Repository is not in an appropriate state to stage changes.");
+            return false;
+        }
+
+        var unrelatedStagedPaths = gitService.GetStagedPathsOutside(contentDir);
+        if (unrelatedStagedPaths.Count > 0)
+        {
+            logger?.Error(config.DestinationPath,
+                $"The Git index already contains staged changes outside \"{contentDir}\". Commit or unstage them before running l5xgit commit:"
+                + System.Environment.NewLine
+                + string.Join(System.Environment.NewLine, unrelatedStagedPaths.Select(path => "  " + path)));
             return false;
         }
         var commit = await gitService.CommitAsync(commitMessage);
@@ -151,6 +168,15 @@ public static class Commit
         }
 
         return true;
+    }
+
+    static bool IsSamePath(string left, string right)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+            comparison);
     }
 
     static void ExplodeL5x(string l5xFilePath, string destinationPath, bool unsafeSkipDependencyCheck)
