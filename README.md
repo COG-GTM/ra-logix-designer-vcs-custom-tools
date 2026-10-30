@@ -71,6 +71,15 @@ l5xgit -h
   l5xgit difftool --acd path/to/project.ACD
   ```
 
+  The `<name>_L5xGit.yml` file next to an ACD travels with the project folder, so `difftool` only runs git in the
+  repository it names after you approve that repository for that ACD. Approvals are stored per user in
+  `%LOCALAPPDATA%\l5xgit\trusted_destinations.json`; destinations you enter at the `commit`/`restoreacd` prompt are
+  approved automatically, otherwise `difftool` asks once (or pass `--trust-destination`). `destination_path` must be
+  an absolute path. `difftool` refuses to run when the repository's own configuration (`.git/config`) sets
+  `diff.tool`, `difftool.*`, `merge.tool`, `mergetool.*`, `filter.*`, `diff.<driver>.textconv`/`command`, pager or
+  `include` settings; configure your diff tool with `git config --global` instead. Git is started by its full path
+  from `PATH` with `core.fsmonitor` disabled.
+
 - **Restore from Git:**
   ```sh
   l5xgit restoreacd --acd path/to/project.ACD

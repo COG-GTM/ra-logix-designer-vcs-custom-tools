@@ -11,6 +11,12 @@ public interface IGitService : IDisposable
     string RepoRoot { get; }
 
     /// <summary>
+    /// Gets the keys set by the repository's own configuration (<c>.git/config</c>, worktree
+    /// config and files they include), excluding the user's global and the system configuration.
+    /// </summary>
+    IReadOnlyList<string> GetRepositoryConfigKeys();
+
+    /// <summary>
     /// Stages all changes under the specified folder path.
     /// Returns <c>false</c> if the repository is not in a state that allows staging (e.g. unresolved merge).
     /// </summary>

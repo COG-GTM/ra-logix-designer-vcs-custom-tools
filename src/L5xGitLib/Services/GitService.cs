@@ -24,6 +24,19 @@ public sealed class GitService : IGitService
         return new GitService(repoPath);
     }
 
+    public IReadOnlyList<string> GetRepositoryConfigKeys()
+    {
+        if (disposed)
+        {
+            throw new ObjectDisposedException(nameof(GitService));
+        }
+
+        return repo.Config
+            .Where(entry => entry.Level is not (ConfigurationLevel.Global or ConfigurationLevel.Xdg or ConfigurationLevel.System or ConfigurationLevel.ProgramData))
+            .Select(entry => entry.Key)
+            .ToList();
+    }
+
     /// <summary>
     /// Initializes a new Git repository at the specified folder path.
     /// Creates the directory if it does not exist.

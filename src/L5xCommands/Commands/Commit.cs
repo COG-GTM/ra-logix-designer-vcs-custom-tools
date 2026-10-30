@@ -63,6 +63,7 @@ public static class Commit
 
             logger?.Status(configFilePath, "Saving configuration file...");
             config.Save(configFilePath);
+            TrustedDestinations.ForCurrentUser().Trust(acdPath, destPath);
 
             await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck);
         }
