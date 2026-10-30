@@ -568,6 +568,7 @@ Describe 'l5xgit commit only commits RSLogix5000Content' -Tag 'SDK' {
             Push-Location $script:env.GitRepoDir
             try {
                 $script:commitCount = (git --no-pager log --oneline 2>$null | Measure-Object).Count
+                $script:stagedFiles = git diff --cached --name-only | Where-Object { $_ }
             }
             finally { Pop-Location }
         }
@@ -580,6 +581,18 @@ Describe 'l5xgit commit only commits RSLogix5000Content' -Tag 'SDK' {
         It 'does not create a commit' {
             Assert-WithPause -Paths @($script:env.GitRepoDir) -Assertion {
                 $script:commitCount | Should -Be 0
+            }
+        }
+
+        It 'exits with a non-zero code' {
+            Assert-WithPause -Paths @($script:env.RootDir) -Assertion {
+                $script:result.ExitCode | Should -Not -Be 0
+            }
+        }
+
+        It 'leaves the index as the user staged it' {
+            Assert-WithPause -Paths @($script:env.GitRepoDir) -Assertion {
+                (@($script:stagedFiles) -join ',') | Should -Be 'notes.txt'
             }
         }
 
