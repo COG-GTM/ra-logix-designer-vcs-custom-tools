@@ -286,6 +286,7 @@ Describe 'l5xplode explode with unsafe element names' {
         Join-Path $script:content 'Programs/%2E%2E/%2E%2E.xml' | Should -Exist
         Join-Path $script:content 'Programs/%2E%2E/Tags/Foo.xml' | Should -Exist
         Join-Path $script:content 'Programs/%2E%2E/Routines/%41UX.st' | Should -Exist
+        Join-Path $script:content 'Programs/%2E%2E/Routines/%2541UX.st' | Should -Exist
         Join-Path $script:content 'Routines' | Should -Not -Exist
     }
 
@@ -315,7 +316,10 @@ Describe 'l5xplode explode with unsafe element names' {
         $program = $doc.RSLogix5000Content.Controller.Programs.Program | Where-Object { $_.Name -eq '..' }
         $program | Should -Not -BeNullOrEmpty
         @($program.Tags.Tag | ForEach-Object { $_.Name }) | Should -Be @('Foo')
-        $program.Routines.Routine.Name | Should -Be 'AUX'
-        @($program.Routines.Routine.STContent.Line).Count | Should -Be 1
+        $aux = $program.Routines.Routine | Where-Object { $_.Name -eq 'AUX' }
+        @($aux.STContent.Line).Count | Should -Be 1
+        $aux.STContent.Line.'#cdata-section' | Should -Be 'Foo := Foo + 1;'
+        $encodedAux = $program.Routines.Routine | Where-Object { $_.Name -eq '%41UX' }
+        @($encodedAux.STContent.Line).Count | Should -Be 2
     }
 }

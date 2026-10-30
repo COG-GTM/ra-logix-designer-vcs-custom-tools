@@ -17,25 +17,22 @@ internal sealed class StructuredTextSerializer : ICustomSerializer
             return [];
         }
 
+        // .st files are named after the encoded routine name (e.g. a routine named AUX is written
+        // as %41UX.st), so match on that first. A raw name is only a fallback, otherwise a routine
+        // literally named %41UX would take AUX's source.
+        var routineElements = elements
+            .Where(e => e.Name.LocalName == "Routine" && !string.IsNullOrEmpty(e.Attribute("Name")?.Value))
+            .ToList();
+
         var routines = new Dictionary<string, XElement>(StringComparer.OrdinalIgnoreCase);
-        foreach (var element in elements.Where(e => e.Name.LocalName == "Routine"))
+        foreach (var element in routineElements)
         {
-            var name = element.Attribute("Name")?.Value;
-            if (!string.IsNullOrEmpty(name))
-            {
-                routines[name] = element;
-            }
+            routines[FileHelpers.ToSafeFileName(element.Attribute("Name")!.Value)] = element;
         }
 
-        // .st files are named after the sanitized routine name (e.g. a routine named AUX is
-        // written as %41UX.st), so also look routines up by that name.
-        foreach (var element in elements.Where(e => e.Name.LocalName == "Routine"))
+        foreach (var element in routineElements)
         {
-            var name = element.Attribute("Name")?.Value;
-            if (!string.IsNullOrEmpty(name))
-            {
-                routines.TryAdd(FileHelpers.ToSafeFileName(name), element);
-            }
+            routines.TryAdd(element.Attribute("Name")!.Value, element);
         }
 
         var synthesised = new List<XElement>();

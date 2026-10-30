@@ -86,6 +86,12 @@
 <Line Number="0"><![CDATA[Foo := Foo + 1;]]></Line>
 </STContent>
 </Routine>
+<Routine Name="%41UX" Type="ST">
+<STContent>
+<Line Number="0"><![CDATA[Foo := 2;]]></Line>
+<Line Number="1"><![CDATA[Foo := Foo + 2;]]></Line>
+</STContent>
+</Routine>
 </Routines>
 </Program>
 </Programs>
