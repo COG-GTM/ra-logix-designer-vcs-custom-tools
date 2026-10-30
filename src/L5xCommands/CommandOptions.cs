@@ -107,4 +107,14 @@ internal static class CommandOptions
                       "WARNING: The resulting exploded representation may not implode correctly " +
                       "if encoded AOIs have hidden inter-AOI dependencies.",
     };
+
+    /// <summary>
+    /// Creates a --trust-destination option that approves the destination named in the ACD's
+    /// _L5xGit.yml file without prompting, for scripted use.
+    /// </summary>
+    public static Option<bool> TrustDestination() => new("--trust-destination")
+    {
+        Description = "Approve the destination_path in the ACD's _L5xGit.yml file without prompting, and remember it for this ACD. " +
+                      "Only use this when you wrote that file yourself.",
+    };
 }

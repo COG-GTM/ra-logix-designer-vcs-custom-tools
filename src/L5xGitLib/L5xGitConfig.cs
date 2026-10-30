@@ -31,6 +31,15 @@ public sealed class L5xGitConfig
         var deserializer = new DeserializerBuilder()
             .IgnoreUnmatchedProperties()
             .Build();
-        return deserializer.Deserialize<L5xGitConfig>(yaml);
+        var config = deserializer.Deserialize<L5xGitConfig?>(yaml);
+
+        var destinationPath = DestinationPath.TryNormalize(config?.DestinationPath, out var error)
+            ?? throw new InvalidDataException($"Invalid destination_path in configuration file '{filePath}': {error}.");
+
+        return new L5xGitConfig
+        {
+            DestinationPath = destinationPath,
+            PromptForCommitMessage = config!.PromptForCommitMessage,
+        };
     }
 }

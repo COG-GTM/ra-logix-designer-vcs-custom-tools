@@ -129,6 +129,23 @@ Directories exploded before schema stamping was introduced are treated as versio
 implode.  However early versions of this tool lack any schema version check, and may produce
 inconsistent results if asked to implode a newer exploded schema.
 
+## Git Destination Approval
+
+`l5xgit commit`, `restoreacd` and `difftool` read the Git destination from `<project>_L5xGit.yml` next to the ACD.
+That file can arrive with a project folder from someone else, so its `destination_path` is only used once you have
+approved it for that ACD:
+
+- When you enter the destination at the prompt, it is approved automatically.
+- When the file already exists (for example, it came with the project), l5xgit shows the full path and asks
+  `Use '<path>' for this project? (y/n)` before it writes, commits, restores or runs `git` there.
+- Approvals are stored per user in `%LOCALAPPDATA%\l5xgit\trusted_destinations.yml`, keyed by the ACD's full path.
+  If the file later names a different destination, you are asked again.
+- For scripts, `--trust-destination` approves the destination without prompting. Only use it with a config file you wrote.
+- `destination_path` must be an absolute local path. UNC/network paths (`\\server\share\...`) are rejected.
+- `difftool` refuses to run when the repository's own `.git/config` sets settings that make git run programs
+  (`diff.tool`, `difftool.*`, `merge.tool`, `mergetool.*`, `core.fsmonitor`, `core.pager`, `filter.*`, `include.*`, etc.).
+  Configure your diff tool with `git config --global` instead.
+
 ## Integration with Logix Designer
 
 Some level of integration with Logix Designer can be achieved by using Custom Tools xml which is produced during the build

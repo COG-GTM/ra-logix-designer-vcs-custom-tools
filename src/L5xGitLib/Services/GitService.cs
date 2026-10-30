@@ -35,6 +35,44 @@ public sealed class GitService : IGitService
         return new GitService(repoPath);
     }
 
+    // Keys that make the git command line run a program or read other config files.
+    private static readonly string[] CommandSettingPrefixes =
+    [
+        "diff.tool", "diff.guitool", "diff.external", "difftool.",
+        "merge.tool", "merge.guitool", "mergetool.",
+        "core.fsmonitor", "core.pager", "core.editor", "core.sshcommand", "core.hookspath", "core.worktree",
+        "pager.", "filter.", "include.", "includeif.",
+    ];
+
+    public IReadOnlyList<string> GetRepositoryCommandSettings()
+    {
+        if (disposed)
+        {
+            throw new ObjectDisposedException(nameof(GitService));
+        }
+
+        return repo.Config
+            .Where(entry => entry.Level is not (ConfigurationLevel.Global or ConfigurationLevel.Xdg or ConfigurationLevel.System or ConfigurationLevel.ProgramData))
+            .Select(entry => entry.Key)
+            .Where(IsCommandSetting)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsCommandSetting(string key)
+    {
+        var lowerKey = key.ToLowerInvariant();
+        if (lowerKey.StartsWith("diff.", StringComparison.Ordinal) &&
+            (lowerKey.EndsWith(".textconv", StringComparison.Ordinal) || lowerKey.EndsWith(".command", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        return CommandSettingPrefixes.Any(prefix => prefix.EndsWith('.')
+            ? lowerKey.StartsWith(prefix, StringComparison.Ordinal)
+            : lowerKey == prefix);
+    }
+
     public bool Stage(string folderPath)
     {
         if (disposed)

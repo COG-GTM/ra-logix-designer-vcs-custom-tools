@@ -18,25 +18,29 @@ public static class Commit
             var acdOption = CommandOptions.AcdInputFile();
             acdOption.Required = true;
             var unsafeSkipDependencyCheckOption = CommandOptions.UnsafeSkipDependencyCheck();
+            var trustDestinationOption = CommandOptions.TrustDestination();
 
             command.Options.Add(acdOption);
             command.Options.Add(unsafeSkipDependencyCheckOption);
+            command.Options.Add(trustDestinationOption);
 
             command.SetAction(parseResult => 
             {
                 var acdPath = parseResult.GetValue(acdOption) ?? throw new ArgumentNullException(nameof(acdOption));
                 var unsafeSkipDependencyCheck = parseResult.GetValue(unsafeSkipDependencyCheckOption);
+                var trustDestination = parseResult.GetValue(trustDestinationOption);
 
-                return Execute(acdPath, unsafeSkipDependencyCheck);
+                return Execute(acdPath, unsafeSkipDependencyCheck, trustDestination);
             });
 
             return command;
         }
     }
 
-    private static async Task Execute(string acdPath, bool unsafeSkipDependencyCheck)
+    private static async Task Execute(string acdPath, bool unsafeSkipDependencyCheck, bool trustDestination)
     {
         var logger = new StdOutEventLogger();
+        acdPath = Path.GetFullPath(acdPath);
         var configFilePath = Paths.GetL5xConfigFilePathFromAcdPath(acdPath);
 
         logger?.Status(configFilePath, "Loading configuration file...");
@@ -63,11 +67,15 @@ public static class Commit
 
             logger?.Status(configFilePath, "Saving configuration file...");
             config.Save(configFilePath);
+            DestinationTrust.Remember(acdPath, destPath);
 
             await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck);
         }
         else
         {
+            if (!DestinationTrust.EnsureTrusted(acdPath, configFilePath, config.DestinationPath, trustDestination))
+                return;
+
             // Existing config — ensure git repo still exists.
             var gitService = EnsureGitRepo(config.DestinationPath, logger);
             if (gitService is null)

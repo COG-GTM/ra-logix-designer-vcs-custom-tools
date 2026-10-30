@@ -16,17 +16,19 @@ public static class Difftool
 
             var acdOption = CommandOptions.AcdInputFile();
             acdOption.Required = true;
+            var trustDestinationOption = CommandOptions.TrustDestination();
 
             command.Options.Add(acdOption);
+            command.Options.Add(trustDestinationOption);
 
             command.SetAction(parseResult => 
             {
                 var acdPath = parseResult.GetValue(acdOption) ?? throw new ArgumentNullException(nameof(acdOption));
+                var trustDestination = parseResult.GetValue(trustDestinationOption);
 
                 try
                 {
-                    Execute(acdPath);
-                    return 0;
+                    return Execute(acdPath, trustDestination) ? 0 : 1;
                 }
                 catch (Exception ex)
                 {
@@ -39,23 +41,42 @@ public static class Difftool
         }
     }
 
-    private static void Execute(string acdPath)
+    private static bool Execute(string acdPath, bool trustDestination)
     {
+        acdPath = Path.GetFullPath(acdPath);
         var configFilePath = Paths.GetL5xConfigFilePathFromAcdPath(acdPath);
         var config = L5xGitConfig.LoadFromFile(configFilePath);
         if (config == null)
         {
             Console.Error.WriteLine($"Configuration file not found at {configFilePath}. Please run 'l5xgit commit' first.");
-            return;
+            return false;
+        }
+
+        if (!DestinationTrust.EnsureTrusted(acdPath, configFilePath, config.DestinationPath, trustDestination))
+        {
+            return false;
         }
 
         using var gitService = GitService.Create(config.DestinationPath);
         if (gitService == null)
         {
             Console.Error.WriteLine($"Failed to initialize Git service for path: {config.DestinationPath}");
-            return;
+            return false;
         }
         var repoRoot = gitService.RepoRoot;
+
+        // The repository's own .git/config travels with the repository, so it must not choose
+        // the program git difftool runs. Diff tools belong in the user's global configuration.
+        var commandSettings = gitService.GetRepositoryCommandSettings();
+        if (commandSettings.Count > 0)
+        {
+            Console.Error.WriteLine(
+                $"Refusing to run git difftool in '{repoRoot}': the repository's own configuration sets " +
+                $"{string.Join(", ", commandSettings)}, which can make git run arbitrary programs. " +
+                "Remove these settings from the repository (git config --local --unset <key>) and configure " +
+                "your diff tool with 'git config --global' instead.");
+            return false;
+        }
 
         // run a git difftool --dir-diff HEAD~1 command, unfortunately lib2git does not help us here
         // we just use the git CLI
@@ -77,12 +98,15 @@ public static class Difftool
             if (process == null)
             {
                 Console.Error.WriteLine("Failed to start the git difftool process.");
-                return;
+                return false;
             }
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Error while running git difftool: {ex.Message}");
+            return false;
         }
+
+        return true;
     }
 }
