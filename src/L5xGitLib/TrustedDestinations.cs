@@ -38,20 +38,48 @@ public sealed class TrustedDestinations
     public bool IsTrusted(string acdPath, string destinationPath)
     {
         var acd = Path.GetFullPath(acdPath);
+        var destination = DestinationPath.TryNormalize(destinationPath, out _);
+        if (destination is null)
+        {
+            return false;
+        }
+
         return Load().Any(entry =>
             entry.AcdPath is not null &&
-            entry.DestinationPath is not null &&
             string.Equals(entry.AcdPath, acd, DestinationPath.PathComparison) &&
-            DestinationPath.AreSame(entry.DestinationPath, destinationPath));
+            DestinationPath.TryNormalize(entry.DestinationPath, out _) is { } stored &&
+            DestinationPath.AreSame(stored, destination));
+    }
+
+    /// <summary>
+    /// Like <see cref="Trust"/>, but reports failure instead of throwing so callers that only
+    /// record the destination for later difftool runs can carry on when the store is unavailable.
+    /// </summary>
+    public bool TryTrust(string acdPath, string destinationPath, out string? error)
+    {
+        try
+        {
+            Trust(acdPath, destinationPath);
+            error = null;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            error = ex.Message;
+            return false;
+        }
     }
 
     /// <summary>
     /// Records <paramref name="destinationPath"/> as the approved destination for <paramref name="acdPath"/>,
     /// replacing any destination previously approved for that ACD.
     /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="destinationPath"/> is not a valid absolute path.</exception>
     public void Trust(string acdPath, string destinationPath)
     {
         var acd = Path.GetFullPath(acdPath);
+        var destination = DestinationPath.TryNormalize(destinationPath, out var destinationError)
+            ?? throw new ArgumentException($"Invalid destination path: {destinationError}.", nameof(destinationPath));
 
         var directory = Path.GetDirectoryName(StorePath);
         if (!string.IsNullOrEmpty(directory))
@@ -64,7 +92,7 @@ public sealed class TrustedDestinations
         var entries = Load()
             .Where(entry => !string.Equals(entry.AcdPath, acd, DestinationPath.PathComparison))
             .ToList();
-        entries.Add(new Entry { AcdPath = acd, DestinationPath = destinationPath });
+        entries.Add(new Entry { AcdPath = acd, DestinationPath = destination });
 
         var json = JsonSerializer.Serialize(new StoreFile { Entries = entries }, JsonOptions);
 

@@ -77,7 +77,10 @@ public static class Difftool
                 return false;
             }
 
-            trustedDestinations.Trust(acdPath, destinationPath);
+            if (!trustedDestinations.TryTrust(acdPath, destinationPath, out var trustError))
+            {
+                Console.Error.WriteLine($"Warning: could not remember this approval ({trustError}). You will be asked again next time.");
+            }
         }
 
         // The repository's own configuration travels with the repository, so it must not choose

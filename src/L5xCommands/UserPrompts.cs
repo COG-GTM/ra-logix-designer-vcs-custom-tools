@@ -55,7 +55,10 @@ internal static class UserPrompts
 
             logger?.Status(configFilePath, "Saving configuration file...");
             config.Save(configFilePath);
-            TrustedDestinations.ForCurrentUser().Trust(acdPath, config.DestinationPath);
+            if (!TrustedDestinations.ForCurrentUser().TryTrust(acdPath, config.DestinationPath, out var trustError))
+            {
+                Console.Error.WriteLine($"Warning: could not record the approved destination ({trustError}). 'l5xgit difftool' will ask you to approve it.");
+            }
         }
 
         return config;
