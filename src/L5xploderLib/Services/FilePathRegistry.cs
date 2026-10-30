@@ -10,18 +10,18 @@ internal sealed class FilePathRegistry
 
         int counter = 1;
 
-        while (_usedFilePaths.Contains(fullPath))
+        while (IsReserved(fullPath))
         {
             fullPath = Path.Combine(folderPath, $"{baseFileName}_{counter}");
             counter++;
         }
 
-        _usedFilePaths.Add(fullPath);
+        Reserve(fullPath);
 
         return fullPath;
     }
 
-    public void Reserve(string filePath) => _usedFilePaths.Add(filePath);
+    public void Reserve(string filePath) => _usedFilePaths.Add(FileHelpers.NormalizeRelativePath(filePath));
 
-    public bool IsReserved(string filePath) => _usedFilePaths.Contains(filePath);
+    public bool IsReserved(string filePath) => _usedFilePaths.Contains(FileHelpers.NormalizeRelativePath(filePath));
 }

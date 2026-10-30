@@ -17,14 +17,30 @@ internal sealed class StructuredTextSerializer : ICustomSerializer
             return [];
         }
 
+        var routineElements = elements
+            .Where(e => e.Name.LocalName == "Routine" && !string.IsNullOrEmpty(e.Attribute("Name")?.Value))
+            .Select(e => (Element: e, Name: e.Attribute("Name")!.Value))
+            .ToList();
+
+        // .st files share their stem with the routine's element file. Current layouts use the
+        // encoded name (a routine named AUX is written as %41UX.st), older ones the raw name. Pick
+        // the layout every routine's element file matches, so a routine literally named %41UX
+        // can't take AUX's source (or the other way round), and fall back to the other name.
+        var elementFileStems = Directory.GetFiles(folderPath)
+            .Where(file => !file.EndsWith(fileExt, StringComparison.OrdinalIgnoreCase))
+            .Select(Path.GetFileNameWithoutExtension)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var encodedLayout = routineElements.All(r => elementFileStems.Contains(FileHelpers.ToSafeFileName(r.Name)));
+
         var routines = new Dictionary<string, XElement>(StringComparer.OrdinalIgnoreCase);
-        foreach (var element in elements.Where(e => e.Name.LocalName == "Routine"))
+        foreach (var (element, name) in routineElements)
         {
-            var name = element.Attribute("Name")?.Value;
-            if (!string.IsNullOrEmpty(name))
-            {
-                routines[name] = element;
-            }
+            routines[encodedLayout ? FileHelpers.ToSafeFileName(name) : name] = element;
+        }
+
+        foreach (var (element, name) in routineElements)
+        {
+            routines.TryAdd(encodedLayout ? name : FileHelpers.ToSafeFileName(name), element);
         }
 
         var synthesised = new List<XElement>();

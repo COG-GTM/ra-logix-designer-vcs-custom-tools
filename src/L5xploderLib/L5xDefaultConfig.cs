@@ -125,8 +125,6 @@ public static class L5xDefaultConfig
         }
     ];
 
-    private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();
-
     private static string DefaultNameGenerator(XElement element)
     {
         var baseName = element.Attribute("Name")?.Value;
@@ -135,12 +133,7 @@ public static class L5xDefaultConfig
             return "unnamed_element";
         }
 
-        foreach (var invalidChar in InvalidFileNameChars)
-        {
-            baseName = baseName.Replace(invalidChar, '_');
-        }
-
-        return baseName;
+        return FileHelpers.ToSafeFileName(baseName);
     }
 
     /// <summary>

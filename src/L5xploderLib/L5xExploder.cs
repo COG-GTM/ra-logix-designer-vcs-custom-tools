@@ -115,6 +115,9 @@ public static class L5xExploder
         string elementFolder = GetElementFolder(element, relativeOutputDir, config);
         string elementFilePath = Path.Combine(elementFolder, fileName);
 
+        EnsureContained(element, relativeOutputDir, elementFolder);
+        EnsureContained(element, elementFolder, elementFilePath);
+
         ValidateChildConfig(config, elementFilePath, filePathRegistry);
 
         // Process child configurations if they exist
@@ -160,6 +163,16 @@ public static class L5xExploder
             {
                 throw new InvalidOperationException($"The file {elementFile} already exists and this element type has a child configuration.");
             }
+        }
+    }
+
+    private static void EnsureContained(XElement element, string container, string path)
+    {
+        if (!FileHelpers.IsStrictlyInside(container, path))
+        {
+            var name = element.Attribute("Name")?.Value ?? string.Empty;
+            throw new InvalidDataException(
+                $"The <{element.Name.LocalName}> element named '{name}' maps to '{path}', which is outside '{container}'.");
         }
     }
 

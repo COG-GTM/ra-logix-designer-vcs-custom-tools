@@ -257,3 +257,69 @@ Describe 'l5xplode explode' {
         }
     }
 }
+
+# Element names become path segments, so '..', Windows device names and trailing dots or
+# spaces must be rewritten rather than resolving to another folder or a device.
+Describe 'l5xplode explode with unsafe element names' {
+
+    BeforeAll {
+        $script:tempDir = New-TestTempDir -Prefix 'l5xplode_unsafe_names'
+        $script:content = Join-Path $script:tempDir 'RSLogix5000Content'
+        $script:outputL5x = Join-Path $script:tempDir 'imploded.L5X'
+        $l5xFile = Join-Path $fixturesDir 'unsafe_element_names.L5X'
+
+        $script:explodeResult = Invoke-L5xplode @('explode', '--l5x', $l5xFile, '--dir', $script:tempDir, '--force')
+        $script:implodeResult = Invoke-L5xplode @('implode', '--dir', $script:tempDir, '--l5x', $script:outputL5x, '--force')
+    }
+
+    AfterAll {
+        $ProgressPreference = 'SilentlyContinue'
+        if (Test-Path $script:tempDir) { Remove-Item $script:tempDir -Recurse -Force }
+    }
+
+    It 'explodes and implodes successfully' {
+        $script:explodeResult.ExitCode | Should -Be 0
+        $script:implodeResult.ExitCode | Should -Be 0
+    }
+
+    It "keeps the '..' program's children inside its own folder" {
+        Join-Path $script:content 'Programs/%2E%2E/%2E%2E.xml' | Should -Exist
+        Join-Path $script:content 'Programs/%2E%2E/Tags/Foo.xml' | Should -Exist
+        Join-Path $script:content 'Programs/%2E%2E/Routines/%41UX.st' | Should -Exist
+        Join-Path $script:content 'Programs/%2E%2E/Routines/%2541UX.st' | Should -Exist
+        Join-Path $script:content 'Routines' | Should -Not -Exist
+    }
+
+    It 'writes device and trailing-dot names to real files' {
+        Join-Path $script:content 'Tags/Foo.xml' | Should -Exist
+        Join-Path $script:content 'Tags/%4EUL.xml' | Should -Exist
+        Join-Path $script:content 'Tags/%43ON.txt.xml' | Should -Exist
+        Join-Path $script:content 'Tags/Trailing%2E%20.xml' | Should -Exist
+    }
+
+    It 'never maps two distinct names to the same file' {
+        Join-Path $script:content 'Tags/NUL_.xml' | Should -Exist
+        Join-Path $script:content 'Tags/%254EUL.xml' | Should -Exist
+        Join-Path $script:content 'Programs/%4EUL/%4EUL.xml' | Should -Exist
+        Join-Path $script:content 'Programs/NUL_/NUL_.xml' | Should -Exist
+    }
+
+    It 'restores the original names and scopes on implode' {
+        [xml]$doc = Get-Content $script:outputL5x -Raw
+        $controllerTags = @($doc.RSLogix5000Content.Controller.Tags.Tag | ForEach-Object { $_.Name })
+        $expectedTags = @('%4EUL', 'CON.txt', 'Foo', 'NUL', 'NUL_', 'Trailing. ')
+        ($controllerTags | Sort-Object) | Should -Be ($expectedTags | Sort-Object)
+
+        $programs = @($doc.RSLogix5000Content.Controller.Programs.Program | ForEach-Object { $_.Name })
+        ($programs | Sort-Object) | Should -Be (@('..', 'MainProgram', 'NUL', 'NUL_') | Sort-Object)
+
+        $program = $doc.RSLogix5000Content.Controller.Programs.Program | Where-Object { $_.Name -eq '..' }
+        $program | Should -Not -BeNullOrEmpty
+        @($program.Tags.Tag | ForEach-Object { $_.Name }) | Should -Be @('Foo')
+        $aux = $program.Routines.Routine | Where-Object { $_.Name -eq 'AUX' }
+        @($aux.STContent.Line).Count | Should -Be 1
+        $aux.STContent.Line.'#cdata-section' | Should -Be 'Foo := Foo + 1;'
+        $encodedAux = $program.Routines.Routine | Where-Object { $_.Name -eq '%41UX' }
+        @($encodedAux.STContent.Line).Count | Should -Be 2
+    }
+}
