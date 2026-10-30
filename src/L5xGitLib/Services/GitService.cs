@@ -54,6 +54,33 @@ public sealed class GitService : IGitService
         return true;
     }
 
+    public IReadOnlyList<string> GetStagedPathsOutside(string folderPath)
+    {
+        if (disposed)
+        {
+            throw new ObjectDisposedException(nameof(GitService));
+        }
+
+        var relativeFolder = Path.GetRelativePath(RepoRoot, Path.GetFullPath(folderPath))
+            .Replace(Path.DirectorySeparatorChar, '/')
+            .TrimEnd('/');
+        var prefix = relativeFolder == "." ? string.Empty : relativeFolder + "/";
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        bool IsOutside(string? path) => path is not null && !path.StartsWith(prefix, comparison);
+
+        const FileStatus stagedStates = FileStatus.NewInIndex | FileStatus.ModifiedInIndex | FileStatus.DeletedFromIndex
+            | FileStatus.RenamedInIndex | FileStatus.TypeChangeInIndex;
+
+        var status = repo.RetrieveStatus(new StatusOptions { IncludeUntracked = false, IncludeIgnored = false });
+
+        return status
+            .Where(entry => (entry.State & stagedStates) != 0)
+            .Where(entry => IsOutside(entry.FilePath) || IsOutside(entry.HeadToIndexRenameDetails?.OldFilePath))
+            .Select(entry => entry.FilePath)
+            .ToList();
+    }
+
     public async Task AddAsync(string folderPath)
     {
         await Task.Run(() => Stage(folderPath));

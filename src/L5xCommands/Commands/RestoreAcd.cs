@@ -16,21 +16,24 @@ public static class RestoreAcd
             var command = new Command("restoreacd", "The inverse of the commit command, this command will overwrite the chosen ACD file with one imploded from Git.");
 
             var acdOption = CommandOptions.AcdOutputFile();
+            var trustConfigOption = CommandOptions.TrustConfig();
 
             command.Options.Add(acdOption);
+            command.Options.Add(trustConfigOption);
 
-            command.SetAction(parseResult =>
+            command.SetAction((parseResult, cancellationToken) =>
             {
                 var acdPath = parseResult.GetValue(acdOption);
+                var trustConfig = parseResult.GetValue(trustConfigOption);
 
-                return Execute(acdPath);
+                return Execute(acdPath, trustConfig);
             });
 
             return command;
         }
     }
 
-    private static async Task Execute(string? acdPath)
+    private static async Task<int> Execute(string? acdPath, bool trustConfig)
     {
         var logger = new StdOutEventLogger();
 
@@ -41,11 +44,15 @@ public static class RestoreAcd
 
         acdPath = Path.GetFullPath(acdPath);
 
-        var config = UserPrompts.InitializeConfigPromptIfNeeded(acdPath, logger);
+        var config = UserPrompts.InitializeConfigPromptIfNeeded(acdPath, trustConfig, logger);
+        if (config is null)
+        {
+            return 1;
+        }
 
         if (!UserPrompts.PromptForFileOverwriteIfExists(acdPath))
         {
-            return;
+            return 0;
         }
 
         var acdFileName = Path.GetFileName(acdPath);
@@ -75,6 +82,7 @@ public static class RestoreAcd
 
         // Now move the temp file to the original ACD path
         File.Move(tempAcdFile.Path, acdPath, true);
+        return 0;
     }
 
     static string GetAcdBackupFilePath(string acdFilePath)

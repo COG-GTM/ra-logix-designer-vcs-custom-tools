@@ -42,7 +42,11 @@ internal static class UserPrompts
         return config;
     }
 
-    public static L5xGitConfig InitializeConfigPromptIfNeeded(string acdPath, IOperationEvent? logger)
+    /// <summary>
+    /// Loads the ACD's configuration file, prompting for and saving a new one if it does not exist.
+    /// Returns <c>null</c> if an existing file's destination was not confirmed by the user.
+    /// </summary>
+    public static L5xGitConfig? InitializeConfigPromptIfNeeded(string acdPath, bool trustConfig, IOperationEvent? logger)
     {
         var configFilePath = Paths.GetL5xConfigFilePathFromAcdPath(acdPath);
 
@@ -55,9 +59,14 @@ internal static class UserPrompts
 
             logger?.Status(configFilePath, "Saving configuration file...");
             config.Save(configFilePath);
+            SidecarDestination.Remember(acdPath, config.DestinationPath);
+            return config;
         }
 
-        return config;
+        var consequence = $"Restore will overwrite '{acdPath}' with the project stored in that directory.";
+        return SidecarDestination.EnsureConfirmed(acdPath, configFilePath, config, consequence, trustConfig, logger)
+            ? config
+            : null;
     }
 
     public static string PromptForAcdFilePath()
@@ -114,6 +123,18 @@ internal static class UserPrompts
         Console.WriteLine("");
         Console.WriteLine($"No Git repository found at '{directory}'.");
         return PromptYesNo("Would you like to create the directory and initialize a new Git repository?");
+    }
+
+    public static bool PromptToConfirmSidecarDestination(string acdPath, string configFilePath, string destinationPath, string? repoRoot, string consequence)
+    {
+        Console.WriteLine("");
+        Console.WriteLine($"WARNING: '{configFilePath}' points this project at:");
+        Console.WriteLine($"    Directory:      {destinationPath}");
+        Console.WriteLine($"    Git repository: {repoRoot ?? "(none found)"}");
+        Console.WriteLine($"This destination has not been confirmed for '{acdPath}' by {Environment.UserName} on this computer.");
+        Console.WriteLine(consequence);
+        Console.WriteLine("Only continue if you created this configuration file yourself. Project folders received from others can carry their own _L5xGit.yml.");
+        return PromptYesNo("Use this destination for this project?");
     }
 
     public static string PromptForCommitMessage()
