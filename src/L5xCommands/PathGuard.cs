@@ -46,7 +46,10 @@ internal sealed class PathGuard : IDisposable
                 // The lock is the exclusive open handle, not the file's existence, so the file left behind after a
                 // run (or by a crashed process) does not block later runs. Write access is requested so that users
                 // who can merely read the repository cannot open the leftover file and squat on the lock.
-                return new PathGuard(new FileStream(lockFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+                var lockFile = new FileStream(lockFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                if (!OperatingSystem.IsWindows())
+                    ShareWithGroupIfDirectoryIs(lockFile, lockDirectory);
+                return new PathGuard(lockFile);
             }
             catch (IOException ex) when (IsLockContention(ex))
             {
@@ -59,6 +62,30 @@ internal sealed class PathGuard : IDisposable
 
                 Thread.Sleep(Math.Min(RetryDelayMilliseconds, remaining));
             }
+        }
+    }
+
+    /// <summary>
+    /// The lock file's mode comes from the creator's umask, not git's shared-repository settings, so a
+    /// 0644 file would lock other members of a group-writable repository out. Mirror the directory's
+    /// group-write bit (never "other" access) when this process owns the file.
+    /// </summary>
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    private static void ShareWithGroupIfDirectoryIs(FileStream lockFile, string lockDirectory)
+    {
+        const UnixFileMode groupReadWrite = UnixFileMode.GroupRead | UnixFileMode.GroupWrite;
+        try
+        {
+            if (!File.GetUnixFileMode(lockDirectory).HasFlag(UnixFileMode.GroupWrite))
+                return;
+
+            var mode = File.GetUnixFileMode(lockFile.SafeFileHandle);
+            if ((mode & groupReadWrite) != groupReadWrite)
+                File.SetUnixFileMode(lockFile.SafeFileHandle, mode | groupReadWrite);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            // Not the owner; the owner widens the mode on its next run.
         }
     }
 
