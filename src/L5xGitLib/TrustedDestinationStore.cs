@@ -1,0 +1,148 @@
+using YamlDotNet.Serialization;
+
+namespace L5xGitLib;
+
+/// <summary>
+/// Per-user record of the commit destinations the user has confirmed for each ACD. It lives in the user's local
+/// application data folder, outside the ACD's directory, so whoever can write the ACD's sidecar cannot also mark
+/// their destination as confirmed.
+/// </summary>
+public sealed class TrustedDestinationStore
+{
+    private readonly string filePath;
+
+    public TrustedDestinationStore(string filePath)
+    {
+        this.filePath = filePath;
+    }
+
+    public static string DefaultFilePath =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+            "L5xGit",
+            "trusted-destinations.yml");
+
+    public static TrustedDestinationStore ForCurrentUser() => new(DefaultFilePath);
+
+    /// <summary>
+    /// True when the user has confirmed exactly this destination, committing into exactly this repository root,
+    /// for this ACD. A changed destination, a repository that now resolves to a different root, or a sidecar that
+    /// turned off the commit message prompt the user confirmed with is not trusted.
+    /// </summary>
+    public bool IsTrusted(string acdPath, string destinationPath, string? repoRoot, bool promptForCommitMessage)
+    {
+        if (repoRoot is null)
+        {
+            return false;
+        }
+
+        return Load().Any(entry =>
+            CommitDestination.PathsEqual(entry.AcdPath, acdPath) &&
+            CommitDestination.PathsEqual(entry.DestinationPath, destinationPath) &&
+            CommitDestination.PathsEqual(entry.RepoRoot, repoRoot) &&
+            (promptForCommitMessage || !entry.PromptForCommitMessage));
+    }
+
+    /// <summary>
+    /// True when the user has confirmed this destination for this ACD, whatever repository it resolved to.
+    /// </summary>
+    public bool HasDestination(string acdPath, string destinationPath) =>
+        Load().Any(entry =>
+            CommitDestination.PathsEqual(entry.AcdPath, acdPath) &&
+            CommitDestination.PathsEqual(entry.DestinationPath, destinationPath));
+
+    public void Trust(string acdPath, string destinationPath, string repoRoot, bool promptForCommitMessage)
+    {
+        var directory = Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        // Serializes the read-modify-write across processes committing different ACDs at the same time.
+        using var storeLock = AcquireLock();
+
+        var entries = Load()
+            .Where(entry => !CommitDestination.PathsEqual(entry.AcdPath, acdPath))
+            .ToList();
+
+        entries.Add(new TrustedDestination
+        {
+            AcdPath = acdPath,
+            DestinationPath = destinationPath,
+            RepoRoot = repoRoot,
+            PromptForCommitMessage = promptForCommitMessage,
+        });
+
+        var serializer = new SerializerBuilder()
+            .WithIndentedSequences()
+            .Build();
+
+        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(tempPath, serializer.Serialize(new TrustedDestinationFile { Destinations = entries }));
+            File.Move(tempPath, filePath, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    private FileStream AcquireLock()
+    {
+        var lockPath = filePath + ".lock";
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException) when (attempt < 100)
+            {
+                Thread.Sleep(50);
+            }
+        }
+    }
+
+    private List<TrustedDestination> Load()
+    {
+        if (!File.Exists(filePath))
+        {
+            return [];
+        }
+
+        var deserializer = new DeserializerBuilder()
+            .IgnoreUnmatchedProperties()
+            .Build();
+
+        var file = deserializer.Deserialize<TrustedDestinationFile?>(File.ReadAllText(filePath));
+        return file?.Destinations?
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.AcdPath)
+                && !string.IsNullOrWhiteSpace(entry.DestinationPath)
+                && !string.IsNullOrWhiteSpace(entry.RepoRoot))
+            .ToList() ?? [];
+    }
+
+    private sealed class TrustedDestinationFile
+    {
+        [YamlMember(Alias = "destinations")]
+        public List<TrustedDestination>? Destinations { get; set; }
+    }
+
+    private sealed class TrustedDestination
+    {
+        [YamlMember(Alias = "acd_path")]
+        public string AcdPath { get; set; } = string.Empty;
+
+        [YamlMember(Alias = "destination_path")]
+        public string DestinationPath { get; set; } = string.Empty;
+
+        [YamlMember(Alias = "repo_root")]
+        public string RepoRoot { get; set; } = string.Empty;
+
+        [YamlMember(Alias = "prompt_for_commit_message")]
+        public bool PromptForCommitMessage { get; set; } = true;
+    }
+}

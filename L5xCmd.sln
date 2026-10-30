@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "L5xCommands", "src\L5xComma
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "L5xGitLib", "src\L5xGitLib\L5xGitLib.csproj", "{3941BF0E-9A3D-4DBB-8C7E-BDFD205BD774}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "L5xGitLib.Tests", "tests\L5xGitLib.Tests\L5xGitLib.Tests.csproj", "{148D4491-E463-4246-9DCF-D510D641E9D6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{3941BF0E-9A3D-4DBB-8C7E-BDFD205BD774}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3941BF0E-9A3D-4DBB-8C7E-BDFD205BD774}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3941BF0E-9A3D-4DBB-8C7E-BDFD205BD774}.Release|Any CPU.Build.0 = Release|Any CPU
+		{148D4491-E463-4246-9DCF-D510D641E9D6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{148D4491-E463-4246-9DCF-D510D641E9D6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{148D4491-E463-4246-9DCF-D510D641E9D6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{148D4491-E463-4246-9DCF-D510D641E9D6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

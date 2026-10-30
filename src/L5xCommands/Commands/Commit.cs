@@ -18,42 +18,64 @@ public static class Commit
             var acdOption = CommandOptions.AcdInputFile();
             acdOption.Required = true;
             var unsafeSkipDependencyCheckOption = CommandOptions.UnsafeSkipDependencyCheck();
+            var confirmDestinationOption = CommandOptions.ConfirmDestination();
 
             command.Options.Add(acdOption);
             command.Options.Add(unsafeSkipDependencyCheckOption);
+            command.Options.Add(confirmDestinationOption);
 
             command.SetAction(parseResult => 
             {
                 var acdPath = parseResult.GetValue(acdOption) ?? throw new ArgumentNullException(nameof(acdOption));
                 var unsafeSkipDependencyCheck = parseResult.GetValue(unsafeSkipDependencyCheckOption);
+                var confirmDestination = parseResult.GetValue(confirmDestinationOption);
 
-                return Execute(acdPath, unsafeSkipDependencyCheck);
+                return Execute(acdPath, unsafeSkipDependencyCheck, confirmDestination);
             });
 
             return command;
         }
     }
 
-    private static async Task Execute(string acdPath, bool unsafeSkipDependencyCheck)
+    private static async Task<int> Execute(string acdPath, bool unsafeSkipDependencyCheck, string? confirmDestination)
     {
         var logger = new StdOutEventLogger();
+        var trustStore = TrustedDestinationStore.ForCurrentUser();
         var configFilePath = Paths.GetL5xConfigFilePathFromAcdPath(acdPath);
 
         logger?.Status(configFilePath, "Loading configuration file...");
         var config = L5xGitConfig.LoadFromFile(configFilePath);
+
+        if (config is null && confirmDestination is not null)
+        {
+            logger?.Error(configFilePath, "--confirm-destination requires an existing configuration file. Run the commit once without it to choose the destination.");
+            return 1;
+        }
 
         if (config is null)
         {
             logger?.Status(configFilePath, "Configuration file not found...");
             Console.WriteLine("Configuration file not found.");
 
-            var destPath = UserPrompts.PromptForCommitRestoreDirectory();
+            string destPath;
+            try
+            {
+                destPath = CommitDestination.NormalizeDestination(Path.GetFullPath(UserPrompts.PromptForCommitRestoreDirectory()));
+            }
+            catch (InvalidCommitDestinationException ex)
+            {
+                logger?.Error(configFilePath, $"{ex.Message} Commit canceled.");
+                return 1;
+            }
 
             var gitService = EnsureGitRepo(destPath, logger);
             if (gitService is null)
-                return;
+                return 1;
 
             var promptForCommitMessage = UserPrompts.PromptForCommitMessageRequiredOnEachCommit();
+
+            // The user chose these settings themselves, so they are confirmed for this ACD.
+            trustStore.Trust(CommitDestination.NormalizeAcdPath(acdPath), destPath, gitService.RepoRoot, promptForCommitMessage);
 
             config = new L5xGitConfig
             {
@@ -64,17 +86,136 @@ public static class Commit
             logger?.Status(configFilePath, "Saving configuration file...");
             config.Save(configFilePath);
 
-            await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck);
+            return await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck) ? 0 : 1;
         }
         else
         {
-            // Existing config — ensure git repo still exists.
-            var gitService = EnsureGitRepo(config.DestinationPath, logger);
-            if (gitService is null)
-                return;
+            // Existing config: the sidecar may have been written by anyone who can write to the ACD's folder, so the
+            // destination must match what this user confirmed before anything is deleted or committed there.
+            var destination = VerifyConfiguredDestination(acdPath, configFilePath, config, confirmDestination, trustStore, logger);
+            if (destination is null)
+                return 1;
 
-            await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck);
+            var gitService = EnsureGitRepo(destination.DestinationPath, logger);
+            if (gitService is null)
+                return 1;
+
+            if (!VerifyRepositoryRoot(destination, gitService, confirmDestination, logger))
+            {
+                gitService.Dispose();
+                return 1;
+            }
+
+            if (confirmDestination is null && !destination.IsTrusted)
+            {
+                trustStore.Trust(destination.AcdPath, destination.DestinationPath, gitService.RepoRoot, destination.PromptForCommitMessage);
+            }
+
+            var verifiedConfig = new L5xGitConfig
+            {
+                DestinationPath = destination.DestinationPath,
+                PromptForCommitMessage = config.PromptForCommitMessage,
+            };
+
+            return await RunCommit(acdPath, verifiedConfig, gitService, logger, unsafeSkipDependencyCheck) ? 0 : 1;
         }
+    }
+
+    private static CommitDestination? VerifyConfiguredDestination(
+        string acdPath,
+        string configFilePath,
+        L5xGitConfig config,
+        string? confirmDestination,
+        TrustedDestinationStore trustStore,
+        IOperationEvent? logger)
+    {
+        CommitDestination destination;
+        try
+        {
+            destination = CommitDestination.Evaluate(acdPath, config.DestinationPath, config.PromptForCommitMessage, trustStore, DiscoverRepoRoot);
+        }
+        catch (InvalidCommitDestinationException ex)
+        {
+            logger?.Error(configFilePath, $"{ex.Message} Commit canceled.");
+            return null;
+        }
+
+        if (confirmDestination is not null)
+        {
+            string confirmed;
+            try
+            {
+                confirmed = CommitDestination.NormalizeDestination(confirmDestination);
+            }
+            catch (InvalidCommitDestinationException ex)
+            {
+                logger?.Error(configFilePath, $"--confirm-destination: {ex.Message} Commit canceled.");
+                return null;
+            }
+
+            if (!CommitDestination.PathsEqual(confirmed, destination.DestinationPath))
+            {
+                logger?.Error(configFilePath,
+                    $"The configuration file sets destination_path to '{destination.DestinationPath}', which does not match --confirm-destination '{confirmed}'. Commit canceled.");
+                return null;
+            }
+
+            return destination;
+        }
+
+        if (destination.IsTrusted)
+        {
+            return destination;
+        }
+
+        if (!UserPrompts.ConfirmCommitDestination(configFilePath, destination))
+        {
+            logger?.Error(configFilePath, "Commit canceled: the configured destination was not confirmed.");
+            return null;
+        }
+
+        return destination;
+    }
+
+    private static string? DiscoverRepoRoot(string path)
+    {
+        using var gitService = GitService.Create(path);
+        return gitService?.RepoRoot;
+    }
+
+    /// <summary>
+    /// Ensures the repository that will receive the commit is the one the user confirmed. Network destinations are not
+    /// probed before confirmation, so an enclosing repository found afterwards is confirmed separately.
+    /// </summary>
+    private static bool VerifyRepositoryRoot(CommitDestination destination, IGitService gitService, string? confirmDestination, IOperationEvent? logger)
+    {
+        var actualRoot = CommitDestination.NormalizeRepoRoot(gitService.RepoRoot) ?? string.Empty;
+
+        if (destination.RepoRootChecked)
+        {
+            // No repository at check time means EnsureGitRepo initialized one at the destination itself.
+            var expectedRoot = destination.RepoRoot ?? destination.DestinationPath;
+            if (!CommitDestination.PathsEqual(actualRoot, expectedRoot))
+            {
+                logger?.Error(destination.DestinationPath, $"The Git repository for '{destination.DestinationPath}' changed to '{actualRoot}' after it was checked. Commit canceled.");
+                return false;
+            }
+
+            return true;
+        }
+
+        if (confirmDestination is not null || CommitDestination.PathsEqual(actualRoot, destination.DestinationPath))
+        {
+            return true;
+        }
+
+        if (!UserPrompts.ConfirmEnclosingRepository(destination.DestinationPath, actualRoot))
+        {
+            logger?.Error(destination.DestinationPath, "Commit canceled: the enclosing Git repository was not confirmed.");
+            return false;
+        }
+
+        return true;
     }
 
     private static IGitService? EnsureGitRepo(string destinationPath, IOperationEvent? logger)
@@ -97,8 +238,9 @@ public static class Commit
         return gitService;
     }
 
-    private static async Task RunCommit(string acdPath, L5xGitConfig config, IGitService gitService, IOperationEvent? logger, bool unsafeSkipDependencyCheck)
+    private static async Task<bool> RunCommit(string acdPath, L5xGitConfig config, IGitService gitService, IOperationEvent? logger, bool unsafeSkipDependencyCheck)
     {
+        var succeeded = false;
         await PathGuard.Guard(
             path: config.DestinationPath,
             millisecondsTimeout: 0,
@@ -106,8 +248,9 @@ public static class Commit
             action: async () =>
             {
                 var commitMessage = UserPrompts.GetCommitMessagePromptIfNeeded(config);
-                await CommitFromAcd(acdPath, config, commitMessage, gitService, logger, unsafeSkipDependencyCheck);
+                succeeded = await CommitFromAcd(acdPath, config, commitMessage, gitService, logger, unsafeSkipDependencyCheck);
             });
+        return succeeded;
     }
 
     private static async Task<bool> CommitFromAcd(string acdPath, L5xGitConfig config, string commitMessage, IGitService gitService, IOperationEvent? logger, bool unsafeSkipDependencyCheck)
