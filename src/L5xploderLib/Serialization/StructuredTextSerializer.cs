@@ -17,22 +17,30 @@ internal sealed class StructuredTextSerializer : ICustomSerializer
             return [];
         }
 
-        // .st files are named after the encoded routine name (e.g. a routine named AUX is written
-        // as %41UX.st), so match on that first. A raw name is only a fallback, otherwise a routine
-        // literally named %41UX would take AUX's source.
         var routineElements = elements
             .Where(e => e.Name.LocalName == "Routine" && !string.IsNullOrEmpty(e.Attribute("Name")?.Value))
+            .Select(e => (Element: e, Name: e.Attribute("Name")!.Value))
             .ToList();
 
+        // .st files share their stem with the routine's element file. Current layouts use the
+        // encoded name (a routine named AUX is written as %41UX.st), older ones the raw name. Pick
+        // the layout every routine's element file matches, so a routine literally named %41UX
+        // can't take AUX's source (or the other way round), and fall back to the other name.
+        var elementFileStems = Directory.GetFiles(folderPath)
+            .Where(file => !file.EndsWith(fileExt, StringComparison.OrdinalIgnoreCase))
+            .Select(Path.GetFileNameWithoutExtension)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var encodedLayout = routineElements.All(r => elementFileStems.Contains(FileHelpers.ToSafeFileName(r.Name)));
+
         var routines = new Dictionary<string, XElement>(StringComparer.OrdinalIgnoreCase);
-        foreach (var element in routineElements)
+        foreach (var (element, name) in routineElements)
         {
-            routines[FileHelpers.ToSafeFileName(element.Attribute("Name")!.Value)] = element;
+            routines[encodedLayout ? FileHelpers.ToSafeFileName(name) : name] = element;
         }
 
-        foreach (var element in routineElements)
+        foreach (var (element, name) in routineElements)
         {
-            routines.TryAdd(element.Attribute("Name")!.Value, element);
+            routines.TryAdd(encodedLayout ? name : FileHelpers.ToSafeFileName(name), element);
         }
 
         var synthesised = new List<XElement>();
