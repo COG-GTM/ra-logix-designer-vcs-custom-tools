@@ -131,18 +131,38 @@ inconsistent results if asked to implode a newer exploded schema.
 
 ## Integration with Logix Designer
 
-Some level of integration with Logix Designer can be achieved by using Custom Tools xml which is produced during the build
-configured to point to the build output path.
+Some level of integration with Logix Designer can be achieved by using a Custom Tools xml file. Logix Designer reads it
+from `C:\Program Files (x86)\Rockwell Software\RSLogix 5000\Common\CustomToolsMenu.xml`, so it applies to **every user of
+the machine**, and every user who clicks a custom tool button runs the program its `<Command>` elements point at.
 
-`artifacts\bin\release\Assets\CustomToolsMenu.xml` can be copied to: `C:\Program Files (x86)\Rockwell Software\RSLogix 5000\Common\CustomToolsMenu.xml`
-to install the custom tools globally within Logix Designer.
-
-A script is provided which self-elevates to Administrator and performs the copy:
+A script is provided which self-elevates to Administrator and installs the tools globally:
 
 ```powershell
-.\Install-CustomToolsMenu.ps1
+.\Install-CustomToolsMenu.ps1                     # installs artifacts\bin\Release
+.\Install-CustomToolsMenu.ps1 -Configuration Debug
+.\Install-CustomToolsMenu.ps1 -InstallDir 'C:\Program Files\Rockwell Software\l5xgit'  # the default
 ```
 
+The script:
+
+1. Copies the whole build output (`l5xgit.exe`, `l5xgit.dll`, the `.deps.json` / `.runtimeconfig.json` files, every
+   dependency DLL and the `Assets` folder) into `-InstallDir`, which defaults to
+   `%ProgramFiles%\Rockwell Software\l5xgit`. The folder gets an access control list that grants write access only to
+   Administrators and SYSTEM (Users can read and execute).
+2. Refuses to install if `-InstallDir`, anything inside it, or any of its parent folders can be modified, renamed or
+   re-permissioned by any other principal, or is a symbolic link / junction.
+3. Points every `<Command>` and `<ToolbarIcon>` in the installed `CustomToolsMenu.xml` at `-InstallDir`, backs up any
+   existing `CustomToolsMenu.xml`, and copies the new one into the Logix Designer common directory.
+
+Re-run the script after every rebuild to update the installed copy.
+
+> **Warning:** Do not copy `artifacts\bin\<Configuration>\Assets\CustomToolsMenu.xml` into the Logix Designer common
+> directory by hand. That file points at the build output folder of your clone, and the build does not restrict who can
+> write there (for example, any user can modify a folder created directly under `C:\`). Anyone able to replace
+> `l5xgit.exe` or `l5xgit.dll` in that folder could run code as every user who clicks an l5xgit button in Logix Designer.
+
+To check an installation, run `icacls` on the folder named in `<Command>` in the installed `CustomToolsMenu.xml` and
+confirm that only Administrators, SYSTEM and TrustedInstaller have write access.
 
 ## Testing
 
