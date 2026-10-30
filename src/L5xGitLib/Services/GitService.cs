@@ -5,6 +5,7 @@ namespace L5xGitLib.Services;
 public sealed class GitService : IGitService
 {
     public string RepoRoot => repo.Info.WorkingDirectory ?? string.Empty;
+    public string GitDirectory => repo.Info.Path;
     private readonly Repository repo;
     private bool disposed = false;
 
