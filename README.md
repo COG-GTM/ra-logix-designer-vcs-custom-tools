@@ -76,6 +76,27 @@ l5xgit -h
   l5xgit restoreacd --acd path/to/project.ACD
   ```
 
+## Commit Destination Confirmation
+
+`l5xgit commit` reads the commit destination from `<project>_L5xGit.yml` next to the ACD. Because anyone who can
+write to that folder can change the file, a destination is only used without asking when you have confirmed it for
+that ACD on this computer. Confirmations are stored per user in `%LOCALAPPDATA%\L5xGit\trusted-destinations.yml`,
+together with the Git repository root the destination resolved to.
+
+Before anything is deleted or committed, `l5xgit commit` asks you to confirm the destination when:
+
+- the ACD has no confirmed destination yet, or the `destination_path` in the yml changed;
+- the destination now resolves to a different Git repository root;
+- the destination is a network (UNC or mapped network drive) path, which is not probed until you confirm it;
+- the destination is inside a Git repository rather than at its root (the prompt names the enclosing repository).
+
+Relative destinations are rejected. For unattended use, pass the expected destination explicitly; the commit is
+refused if the yml points anywhere else:
+
+```sh
+l5xgit commit --acd path/to/project.ACD --confirm-destination C:\path\to\repo
+```
+
 ## Dependency Check and `--unsafe-skip-dependency-check`
 
 When an L5X file contains encrypted/encoded Add-On Instructions (AOIs) and was exported

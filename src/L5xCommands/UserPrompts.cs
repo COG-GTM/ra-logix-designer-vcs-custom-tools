@@ -162,6 +162,39 @@ internal static class UserPrompts
         return true;
     }
 
+    public static bool ConfirmCommitDestination(string configFilePath, CommitDestination destination)
+    {
+        Console.WriteLine("");
+        Console.WriteLine($"The configuration file '{configFilePath}' sets the commit destination for");
+        Console.WriteLine($"  '{destination.AcdPath}'");
+        Console.WriteLine("to a directory you have not confirmed on this computer:");
+        Console.WriteLine($"  Destination:     {destination.DestinationPath}");
+        Console.WriteLine($"  Git repository:  {(destination.RepoRootChecked ? destination.RepoRoot ?? "(none found)" : "(not checked until you confirm the network path)")}");
+
+        if (destination.IsNetworkPath)
+        {
+            Console.WriteLine("WARNING: the destination is a network path.");
+        }
+
+        if (destination.RepoRootIsAncestor)
+        {
+            Console.WriteLine($"WARNING: the destination is inside the repository '{destination.RepoRoot}', not at its root. The project will be committed to that repository.");
+        }
+
+        Console.WriteLine(
+            $"Continuing deletes and replaces '{Paths.GetExplodedSubDir(destination.DestinationPath)}' and commits the full project to that repository. " +
+            "If you did not set this destination yourself, answer 'n' and check the configuration file.");
+
+        return PromptYesNo("Commit to this destination?");
+    }
+
+    public static bool ConfirmEnclosingRepository(string destinationPath, string repoRoot)
+    {
+        Console.WriteLine("");
+        Console.WriteLine($"WARNING: '{destinationPath}' is inside the Git repository '{repoRoot}', not at its root. The project will be committed to that repository.");
+        return PromptYesNo("Commit to this repository?");
+    }
+
     public static bool ConfirmSchemaUpgrade(string directory, bool force)
     {
         // A missing options file means the directory holds no exploded content yet, not an old layout.

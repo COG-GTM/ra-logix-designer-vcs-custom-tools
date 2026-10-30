@@ -117,7 +117,7 @@ Describe 'l5xgit commit with Dependencies fixture' -Tag 'SDK' {
     Context 'commit raC_Opr_HTTP_Client_deps to a git repo' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:depsFixture -Prefix 'commit_deps'
-            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--confirm-destination', $script:env.GitRepoDir)
         }
 
         AfterAll {
@@ -190,7 +190,7 @@ Describe 'l5xgit commit with no-deps fixture' -Tag 'SDK' {
     Context 'commit without --unsafe-skip-dependency-check succeeds (SDK re-export includes Dependencies)' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:noDepsFixture -Prefix 'commit_nodeps_sdk'
-            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--confirm-destination', $script:env.GitRepoDir)
         }
 
         AfterAll {
@@ -232,7 +232,7 @@ Describe 'l5xgit commit with no-deps fixture' -Tag 'SDK' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:noDepsFixture -Prefix 'commit_nodeps_ok'
             $script:result = Invoke-L5xgit @(
-                'commit', '--acd', $script:env.AcdPath, '--unsafe-skip-dependency-check'
+                'commit', '--acd', $script:env.AcdPath, '--confirm-destination', $script:env.GitRepoDir, '--unsafe-skip-dependency-check'
             )
         }
 
@@ -285,7 +285,7 @@ Describe 'l5xgit commit then restoreacd round-trip (deps)' -Tag 'SDK' {
     Context 'restore ACD from a committed repo' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:depsFixture -Prefix 'restore_deps'
-            $commitResult = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+            $commitResult = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--confirm-destination', $script:env.GitRepoDir)
             if ($commitResult.ExitCode -ne 0) { throw "commit failed: $($commitResult.StdErr)" }
 
             $script:restoredAcd = Join-Path $script:env.AcdDir 'restored.acd'
@@ -326,7 +326,7 @@ Describe 'l5xgit full round-trip L5X-ACD-commit-restoreacd-ACD-L5X (deps)' -Tag 
     Context 'round-tripped L5X preserves structure' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:depsFixture -Prefix 'fullrt_deps'
-            $commitResult = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+            $commitResult = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--confirm-destination', $script:env.GitRepoDir)
             if ($commitResult.ExitCode -ne 0) { throw "commit failed: $($commitResult.StdErr)" }
 
             $script:restoredAcd = Join-Path $script:env.AcdDir 'roundtrip.acd'
@@ -411,7 +411,7 @@ Describe 'l5xgit full round-trip with no-deps and --unsafe-skip-dependency-check
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:noDepsFixture -Prefix 'fullrt_nodeps'
             $commitResult = Invoke-L5xgit @(
-                'commit', '--acd', $script:env.AcdPath, '--unsafe-skip-dependency-check'
+                'commit', '--acd', $script:env.AcdPath, '--confirm-destination', $script:env.GitRepoDir, '--unsafe-skip-dependency-check'
             )
             if ($commitResult.ExitCode -ne 0) { throw "commit failed: $($commitResult.StdErr)" }
 
@@ -480,7 +480,7 @@ Describe 'l5xgit subsequent commit inherits saved unsafe flag' -Tag 'SDK' {
         BeforeAll {
             $script:env = New-CommitTestEnvironment -L5xFixture $script:noDepsFixture -Prefix 'inherit_unsafe'
             $first = Invoke-L5xgit @(
-                'commit', '--acd', $script:env.AcdPath, '--unsafe-skip-dependency-check'
+                'commit', '--acd', $script:env.AcdPath, '--confirm-destination', $script:env.GitRepoDir, '--unsafe-skip-dependency-check'
             )
             if ($first.ExitCode -ne 0) { throw "first commit failed: $($first.StdErr)" }
 
@@ -488,7 +488,7 @@ Describe 'l5xgit subsequent commit inherits saved unsafe flag' -Tag 'SDK' {
                 Write-Host "[DEBUG] First commit done. Running second without --unsafe..." -ForegroundColor DarkCyan
             }
 
-            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+            $script:result = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--confirm-destination', $script:env.GitRepoDir)
         }
 
         AfterAll {
@@ -508,6 +508,60 @@ Describe 'l5xgit subsequent commit inherits saved unsafe flag' -Tag 'SDK' {
                 $content = Get-Content $optionsFile -Raw
                 $content | Should -Match 'unsafe_skip_dependency_check:\s*true'
             }
+        }
+    }
+}
+
+Describe 'l5xgit commit refuses an unconfirmed sidecar destination' -Tag 'SDK' {
+
+    BeforeAll {
+        $script:env = New-CommitTestEnvironment -L5xFixture $script:depsFixture -Prefix 'commit_foreign'
+
+        # A repository the user never chose, with existing exploded content that must not be deleted.
+        $script:foreignRepo = Join-Path $script:env.RootDir 'foreign'
+        $script:sentinel = Join-Path $script:foreignRepo 'RSLogix5000Content/sentinel.txt'
+        New-Item -ItemType Directory -Path (Split-Path $script:sentinel) -Force | Out-Null
+        'keep me' | Set-Content -Path $script:sentinel -Encoding UTF8
+        Push-Location $script:foreignRepo
+        try {
+            git init --quiet 2>&1 | Out-Null
+            git config user.name  'Mallory'
+            git config user.email 'mallory@example.com'
+            git add -A 2>&1 | Out-Null
+            git commit --quiet -m 'foreign' 2>&1 | Out-Null
+        }
+        finally { Pop-Location }
+
+        "destination_path: $script:foreignRepo`nprompt_for_commit_message: false" | Set-Content -Path $script:env.ConfigPath -Encoding UTF8
+
+        # stdin is closed, so the destination confirmation prompt cannot be answered.
+        $script:unprompted = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath)
+        $script:mismatched = Invoke-L5xgit @('commit', '--acd', $script:env.AcdPath, '--confirm-destination', $script:env.GitRepoDir)
+    }
+
+    AfterAll {
+        $ProgressPreference = 'SilentlyContinue'
+        if (Test-Path $script:env.RootDir) { Remove-Item $script:env.RootDir -Recurse -Force }
+    }
+
+    It 'asks for confirmation instead of committing silently' {
+        Assert-WithPause -Paths @($script:env.RootDir) -Assertion {
+            $script:unprompted.ExitCode | Should -Not -Be 0
+            $script:unprompted.StdOut | Should -Match 'Commit to this destination\?'
+        }
+    }
+
+    It 'refuses when --confirm-destination does not match the sidecar' {
+        Assert-WithPause -Paths @($script:env.RootDir) -Assertion {
+            $script:mismatched.ExitCode | Should -Not -Be 0
+            "$($script:mismatched.StdOut)$($script:mismatched.StdErr)" | Should -Match 'does not match'
+        }
+    }
+
+    It 'leaves the foreign repository untouched' {
+        Assert-WithPause -Paths @($script:foreignRepo) -Assertion {
+            Test-Path $script:sentinel | Should -BeTrue
+            (git -C $script:foreignRepo rev-list --count HEAD) | Should -Be '1'
         }
     }
 }

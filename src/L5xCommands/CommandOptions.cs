@@ -38,6 +38,15 @@ internal static class CommandOptions
     };
 
     /// <summary>
+    /// Creates a --confirm-destination option that confirms, for a single non-interactive run, the commit destination
+    /// read from the ACD's configuration file. The command refuses to run if the configured destination differs.
+    /// </summary>
+    public static Option<string> ConfirmDestination() => new("--confirm-destination")
+    {
+        Description = "Confirm the destination_path from the ACD's _L5xGit.yml without prompting. The commit is refused if the configured destination is different.",
+    };
+
+    /// <summary>
     /// Creates an --l5x / -l option for specifying a path to an L5X file that must exist.
     /// </summary>
     public static Option<string> L5xInputFile() => new("--l5x", "-l")
