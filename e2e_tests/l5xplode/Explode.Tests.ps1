@@ -283,23 +283,34 @@ Describe 'l5xplode explode with unsafe element names' {
     }
 
     It "keeps the '..' program's children inside its own folder" {
-        Join-Path $script:content 'Programs/__/__.xml' | Should -Exist
-        Join-Path $script:content 'Programs/__/Tags/Foo.xml' | Should -Exist
-        Join-Path $script:content 'Programs/__/Routines/AUX_.st' | Should -Exist
+        Join-Path $script:content 'Programs/%2E%2E/%2E%2E.xml' | Should -Exist
+        Join-Path $script:content 'Programs/%2E%2E/Tags/Foo.xml' | Should -Exist
+        Join-Path $script:content 'Programs/%2E%2E/Routines/%41UX.st' | Should -Exist
         Join-Path $script:content 'Routines' | Should -Not -Exist
     }
 
     It 'writes device and trailing-dot names to real files' {
         Join-Path $script:content 'Tags/Foo.xml' | Should -Exist
+        Join-Path $script:content 'Tags/%4EUL.xml' | Should -Exist
+        Join-Path $script:content 'Tags/%43ON.txt.xml' | Should -Exist
+        Join-Path $script:content 'Tags/Trailing%2E%20.xml' | Should -Exist
+    }
+
+    It 'never maps two distinct names to the same file' {
         Join-Path $script:content 'Tags/NUL_.xml' | Should -Exist
-        Join-Path $script:content 'Tags/CON_.txt.xml' | Should -Exist
-        Join-Path $script:content 'Tags/Trailing__.xml' | Should -Exist
+        Join-Path $script:content 'Tags/%254EUL.xml' | Should -Exist
+        Join-Path $script:content 'Programs/%4EUL/%4EUL.xml' | Should -Exist
+        Join-Path $script:content 'Programs/NUL_/NUL_.xml' | Should -Exist
     }
 
     It 'restores the original names and scopes on implode' {
         [xml]$doc = Get-Content $script:outputL5x -Raw
         $controllerTags = @($doc.RSLogix5000Content.Controller.Tags.Tag | ForEach-Object { $_.Name })
-        $controllerTags | Should -Be @('CON.txt', 'Foo', 'NUL', 'Trailing. ')
+        $expectedTags = @('%4EUL', 'CON.txt', 'Foo', 'NUL', 'NUL_', 'Trailing. ')
+        ($controllerTags | Sort-Object) | Should -Be ($expectedTags | Sort-Object)
+
+        $programs = @($doc.RSLogix5000Content.Controller.Programs.Program | ForEach-Object { $_.Name })
+        ($programs | Sort-Object) | Should -Be (@('..', 'MainProgram', 'NUL', 'NUL_') | Sort-Object)
 
         $program = $doc.RSLogix5000Content.Controller.Programs.Program | Where-Object { $_.Name -eq '..' }
         $program | Should -Not -BeNullOrEmpty

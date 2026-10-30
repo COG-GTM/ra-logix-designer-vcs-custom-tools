@@ -28,7 +28,7 @@ internal sealed class StructuredTextSerializer : ICustomSerializer
         }
 
         // .st files are named after the sanitized routine name (e.g. a routine named AUX is
-        // written as AUX_.st), so also look routines up by that name.
+        // written as %41UX.st), so also look routines up by that name.
         foreach (var element in elements.Where(e => e.Name.LocalName == "Routine"))
         {
             var name = element.Attribute("Name")?.Value;

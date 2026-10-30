@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace L5xploderLib;
@@ -27,44 +29,60 @@ public static class FileHelpers
     private static readonly string VirtualRoot =
         Path.GetFullPath(Path.Combine(Path.GetTempPath(), "l5xploder-virtual-root"));
 
+    private const char EscapeChar = '%';
+
     /// <summary>
     /// Turns an arbitrary element name into a single file name segment that is safe on Windows.
-    /// Invalid characters, and trailing dots or spaces (which Windows strips, and which make up
-    /// '.' and '..'), become '_'. Reserved device names (CON, NUL, COM1, ...) get a '_' appended
-    /// to the device part. Names Logix Designer accepts are returned unchanged.
+    /// Names that are already safe and contain no '%' are returned unchanged. Otherwise '%',
+    /// invalid characters, trailing dots or spaces (which Windows strips, and which make up
+    /// '.' and '..') and the first character of a reserved device name (CON, NUL, COM1, ...)
+    /// are percent-encoded. The encoding is reversible, so distinct names never collide, and
+    /// every rewritten name contains a '%', so it can't collide with an unchanged name either.
     /// </summary>
     public static string ToSafeFileName(string name)
     {
-        var chars = name.ToCharArray();
-        for (int i = 0; i < chars.Length; i++)
+        var escape = new bool[name.Length];
+        for (int i = 0; i < name.Length; i++)
         {
-            if (Array.IndexOf(InvalidFileNameChars, chars[i]) >= 0)
+            escape[i] = name[i] == EscapeChar || Array.IndexOf(InvalidFileNameChars, name[i]) >= 0;
+        }
+
+        for (int i = name.Length - 1; i >= 0 && (name[i] == '.' || name[i] == ' '); i--)
+        {
+            escape[i] = true;
+        }
+
+        var dotIndex = name.IndexOf('.');
+        var stem = dotIndex < 0 ? name : name[..dotIndex];
+        if (stem.Length > 0 && ReservedDeviceName.IsMatch(stem.TrimEnd(' ')))
+        {
+            escape[0] = true;
+        }
+
+        if (!escape.Contains(true))
+        {
+            return name;
+        }
+
+        var builder = new StringBuilder(name.Length + 8);
+        for (int i = 0; i < name.Length; i++)
+        {
+            if (escape[i])
             {
-                chars[i] = '_';
+                foreach (var b in Encoding.UTF8.GetBytes(name[i].ToString()))
+                {
+                    builder.Append(EscapeChar).Append(b.ToString("X2", CultureInfo.InvariantCulture));
+                }
+            }
+            else
+            {
+                builder.Append(name[i]);
             }
         }
 
-        for (int i = chars.Length - 1; i >= 0 && (chars[i] == '.' || chars[i] == ' '); i--)
-        {
-            chars[i] = '_';
-        }
-
-        var safeName = new string(chars);
-
-        var dotIndex = safeName.IndexOf('.');
-        var stem = dotIndex < 0 ? safeName : safeName[..dotIndex];
-        if (ReservedDeviceName.IsMatch(stem.TrimEnd(' ')))
-        {
-            safeName = stem + "_" + safeName[stem.Length..];
-        }
-
-        return safeName;
+        return builder.ToString();
     }
 
-    /// <summary>
-    /// Lexically resolves '.' and '..' segments in a relative path so that two spellings of the
-    /// same location compare equal. Does not touch the file system.
-    /// </summary>
     public static string NormalizeRelativePath(string relativePath)
     {
         var fullPath = Path.GetFullPath(Path.Combine(VirtualRoot, relativePath));
