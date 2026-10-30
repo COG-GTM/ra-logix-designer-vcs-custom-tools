@@ -9,24 +9,26 @@ namespace L5xCommands;
 /// </summary>
 internal static class DestinationTrust
 {
-    public static bool EnsureTrusted(string acdPath, string configFilePath, string destinationPath, bool trustDestination)
+    /// <summary>
+    /// Returns when the destination is approved for the ACD; throws <see cref="DestinationNotApprovedException"/>
+    /// (non-zero exit code) when the user declines.
+    /// </summary>
+    public static void EnsureTrusted(string acdPath, string configFilePath, string destinationPath, bool trustDestination)
         => EnsureTrusted(TrustedDestinations.ForCurrentUser(), acdPath, configFilePath, destinationPath, trustDestination);
 
-    public static bool EnsureTrusted(TrustedDestinations store, string acdPath, string configFilePath, string destinationPath, bool trustDestination)
+    public static void EnsureTrusted(TrustedDestinations store, string acdPath, string configFilePath, string destinationPath, bool trustDestination)
     {
         if (store.IsTrusted(acdPath, destinationPath))
         {
-            return true;
+            return;
         }
 
         if (!trustDestination && !UserPrompts.PromptToTrustDestination(acdPath, configFilePath, destinationPath))
         {
-            Console.Error.WriteLine($"Destination '{destinationPath}' was not approved. Nothing was written or run.");
-            return false;
+            throw new DestinationNotApprovedException(destinationPath);
         }
 
         store.Trust(acdPath, destinationPath);
-        return true;
     }
 
     /// <summary>
@@ -35,3 +37,6 @@ internal static class DestinationTrust
     public static void Remember(string acdPath, string destinationPath)
         => TrustedDestinations.ForCurrentUser().Trust(acdPath, destinationPath);
 }
+
+internal sealed class DestinationNotApprovedException(string destinationPath)
+    : Exception($"Destination '{destinationPath}' was not approved. Nothing was written or run.");

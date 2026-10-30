@@ -42,10 +42,6 @@ public sealed class TrustedDestinations
     public void Trust(string acdPath, string destinationPath)
     {
         var acd = Path.GetFullPath(acdPath);
-        var entries = Load()
-            .Where(entry => !string.Equals(entry.AcdPath, acd, DestinationPath.PathComparison))
-            .ToList();
-        entries.Add(new Entry { AcdPath = acd, DestinationPath = destinationPath });
 
         var directory = Path.GetDirectoryName(storePath);
         if (!string.IsNullOrEmpty(directory))
@@ -53,14 +49,46 @@ public sealed class TrustedDestinations
             Directory.CreateDirectory(directory);
         }
 
+        // Serialize read-modify-write across l5xgit processes so concurrent approvals are not lost.
+        using var storeLock = AcquireLock();
+
+        var entries = Load()
+            .Where(entry => !string.Equals(entry.AcdPath, acd, DestinationPath.PathComparison))
+            .ToList();
+        entries.Add(new Entry { AcdPath = acd, DestinationPath = destinationPath });
+
         var yaml = new SerializerBuilder()
             .WithIndentedSequences()
             .Build()
             .Serialize(new StoreFile { Entries = entries });
 
-        var tempPath = storePath + ".tmp";
-        File.WriteAllText(tempPath, yaml);
-        File.Move(tempPath, storePath, overwrite: true);
+        var tempPath = $"{storePath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(tempPath, yaml);
+            File.Move(tempPath, storePath, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    private FileStream AcquireLock()
+    {
+        var lockPath = storePath + ".lock";
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (true)
+        {
+            try
+            {
+                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(100);
+            }
+        }
     }
 
     private List<Entry> Load()

@@ -52,10 +52,7 @@ public static class Difftool
             return false;
         }
 
-        if (!DestinationTrust.EnsureTrusted(acdPath, configFilePath, config.DestinationPath, trustDestination))
-        {
-            return false;
-        }
+        DestinationTrust.EnsureTrusted(acdPath, configFilePath, config.DestinationPath, trustDestination);
 
         using var gitService = GitService.Create(config.DestinationPath);
         if (gitService == null)

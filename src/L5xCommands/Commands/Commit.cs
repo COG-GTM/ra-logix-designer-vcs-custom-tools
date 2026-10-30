@@ -73,8 +73,7 @@ public static class Commit
         }
         else
         {
-            if (!DestinationTrust.EnsureTrusted(acdPath, configFilePath, config.DestinationPath, trustDestination))
-                return;
+            DestinationTrust.EnsureTrusted(acdPath, configFilePath, config.DestinationPath, trustDestination);
 
             // Existing config — ensure git repo still exists.
             var gitService = EnsureGitRepo(config.DestinationPath, logger);

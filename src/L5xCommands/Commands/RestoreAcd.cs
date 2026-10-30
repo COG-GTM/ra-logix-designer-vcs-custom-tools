@@ -45,10 +45,6 @@ public static class RestoreAcd
         acdPath = Path.GetFullPath(acdPath);
 
         var config = UserPrompts.InitializeConfigPromptIfNeeded(acdPath, trustDestination, logger);
-        if (config is null)
-        {
-            return;
-        }
 
         if (!UserPrompts.PromptForFileOverwriteIfExists(acdPath))
         {

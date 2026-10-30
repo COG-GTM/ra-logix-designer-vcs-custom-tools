@@ -43,10 +43,11 @@ internal static class UserPrompts
     }
 
     /// <summary>
-    /// Loads the ACD's configuration, prompting to create it when missing. Returns <c>null</c> when an
-    /// existing configuration names a destination the user has not approved and declines to approve.
+    /// Loads the ACD's configuration, prompting to create it when missing. Throws
+    /// <see cref="DestinationNotApprovedException"/> when an existing configuration names a destination
+    /// the user has not approved and declines to approve.
     /// </summary>
-    public static L5xGitConfig? InitializeConfigPromptIfNeeded(string acdPath, bool trustDestination, IOperationEvent? logger)
+    public static L5xGitConfig InitializeConfigPromptIfNeeded(string acdPath, bool trustDestination, IOperationEvent? logger)
     {
         var configFilePath = Paths.GetL5xConfigFilePathFromAcdPath(acdPath);
 
@@ -61,9 +62,9 @@ internal static class UserPrompts
             config.Save(configFilePath);
             DestinationTrust.Remember(acdPath, config.DestinationPath);
         }
-        else if (!DestinationTrust.EnsureTrusted(acdPath, configFilePath, config.DestinationPath, trustDestination))
+        else
         {
-            return null;
+            DestinationTrust.EnsureTrusted(acdPath, configFilePath, config.DestinationPath, trustDestination);
         }
 
         return config;
