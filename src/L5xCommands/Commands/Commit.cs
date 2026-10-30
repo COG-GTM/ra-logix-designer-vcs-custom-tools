@@ -18,23 +18,26 @@ public static class Commit
             var acdOption = CommandOptions.AcdInputFile();
             acdOption.Required = true;
             var unsafeSkipDependencyCheckOption = CommandOptions.UnsafeSkipDependencyCheck();
+            var trustConfigOption = CommandOptions.TrustConfig();
 
             command.Options.Add(acdOption);
             command.Options.Add(unsafeSkipDependencyCheckOption);
+            command.Options.Add(trustConfigOption);
 
-            command.SetAction(parseResult => 
+            command.SetAction((parseResult, cancellationToken) =>
             {
                 var acdPath = parseResult.GetValue(acdOption) ?? throw new ArgumentNullException(nameof(acdOption));
                 var unsafeSkipDependencyCheck = parseResult.GetValue(unsafeSkipDependencyCheckOption);
+                var trustConfig = parseResult.GetValue(trustConfigOption);
 
-                return Execute(acdPath, unsafeSkipDependencyCheck);
+                return Execute(acdPath, unsafeSkipDependencyCheck, trustConfig);
             });
 
             return command;
         }
     }
 
-    private static async Task Execute(string acdPath, bool unsafeSkipDependencyCheck)
+    private static async Task<int> Execute(string acdPath, bool unsafeSkipDependencyCheck, bool trustConfig)
     {
         var logger = new StdOutEventLogger();
         var configFilePath = Paths.GetL5xConfigFilePathFromAcdPath(acdPath);
@@ -51,7 +54,7 @@ public static class Commit
 
             var gitService = EnsureGitRepo(destPath, logger);
             if (gitService is null)
-                return;
+                return 1;
 
             var promptForCommitMessage = UserPrompts.PromptForCommitMessageRequiredOnEachCommit();
 
@@ -63,17 +66,23 @@ public static class Commit
 
             logger?.Status(configFilePath, "Saving configuration file...");
             config.Save(configFilePath);
+            SidecarDestination.Remember(acdPath, destPath);
 
-            await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck);
+            return await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck) ? 0 : 1;
         }
         else
         {
+            // The config file travels with the ACD, so it cannot be trusted to pick what gets deleted and committed.
+            var consequence = $"Commit will DELETE and rewrite '{Path.Join(config.DestinationPath, Constants.ExplodedSubDirName)}' and commit it to that repository as you.";
+            if (!SidecarDestination.EnsureConfirmed(acdPath, configFilePath, config, consequence, trustConfig, logger))
+                return 1;
+
             // Existing config — ensure git repo still exists.
             var gitService = EnsureGitRepo(config.DestinationPath, logger);
             if (gitService is null)
-                return;
+                return 1;
 
-            await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck);
+            return await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck) ? 0 : 1;
         }
     }
 
@@ -97,16 +106,16 @@ public static class Commit
         return gitService;
     }
 
-    private static async Task RunCommit(string acdPath, L5xGitConfig config, IGitService gitService, IOperationEvent? logger, bool unsafeSkipDependencyCheck)
+    private static async Task<bool> RunCommit(string acdPath, L5xGitConfig config, IGitService gitService, IOperationEvent? logger, bool unsafeSkipDependencyCheck)
     {
-        await PathGuard.Guard(
+        return await PathGuard.Guard(
             path: config.DestinationPath,
             millisecondsTimeout: 0,
             timeoutExceptionText: $"Unable to acquire lock on \"{config.DestinationPath}\". Another instance of this process may be running.",
-            action: async () =>
+            func: async () =>
             {
                 var commitMessage = UserPrompts.GetCommitMessagePromptIfNeeded(config);
-                await CommitFromAcd(acdPath, config, commitMessage, gitService, logger, unsafeSkipDependencyCheck);
+                return await CommitFromAcd(acdPath, config, commitMessage, gitService, logger, unsafeSkipDependencyCheck);
             });
     }
 
@@ -129,11 +138,12 @@ public static class Commit
 
         ExplodeL5x(tempL5xFile.Path, config.DestinationPath, unsafeSkipDependencyCheck);
 
-        logger?.Status(config.DestinationPath, "Committing to Git repository...");
+        logger?.Status(config.DestinationPath, $"Committing to Git repository at '{gitService.RepoRoot}'...");
 
         logger?.Status(config.DestinationPath, "Commit message is:" + System.Environment.NewLine + commitMessage);
 
-        var staged = gitService.Stage(config.DestinationPath);
+        // Only stage what this tool just wrote, never other files that happen to live under the destination.
+        var staged = gitService.Stage(Paths.GetExplodedSubDir(config.DestinationPath));
         if (!staged)
         {
             logger?.Error(config.DestinationPath, "Repository is not in an appropriate state to stage changes.");

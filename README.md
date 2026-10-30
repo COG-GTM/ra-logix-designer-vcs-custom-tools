@@ -76,6 +76,24 @@ l5xgit -h
   l5xgit restoreacd --acd path/to/project.ACD
   ```
 
+## Project Configuration File (`<project>_L5xGit.yml`)
+
+`commit`, `difftool` and `restoreacd` keep the Git destination of each project in a `<project>_L5xGit.yml`
+file next to the ACD (`destination_path` and `prompt_for_commit_message`). Because that file travels with the project folder,
+l5xgit does not act on a `destination_path` until you have confirmed it for that ACD on this computer:
+
+- When l5xgit creates the file from your answers, the destination is confirmed automatically.
+- When the file already exists (for example in a project folder you received from someone else, or the first time after
+  upgrading), l5xgit shows the destination directory and the Git repository it belongs to and asks before deleting,
+  committing, overwriting or running `git difftool` there. Answering `y` remembers the destination for that ACD.
+- Confirmed destinations are stored per user in `%LOCALAPPDATA%\l5xgit\trusted-destinations.json`. Changing
+  `destination_path` or moving the ACD asks again.
+- `destination_path` must be an absolute path.
+- `commit` stages only the `RSLogix5000Content` directory it writes under the destination.
+
+For scripts that write the configuration file themselves, `--trust-config` uses its `destination_path` for that run without
+asking (and without remembering it). Do not use it on project folders you did not create.
+
 ## Dependency Check and `--unsafe-skip-dependency-check`
 
 When an L5X file contains encrypted/encoded Add-On Instructions (AOIs) and was exported

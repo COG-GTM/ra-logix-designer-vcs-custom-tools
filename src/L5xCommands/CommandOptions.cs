@@ -107,4 +107,14 @@ internal static class CommandOptions
                       "WARNING: The resulting exploded representation may not implode correctly " +
                       "if encoded AOIs have hidden inter-AOI dependencies.",
     };
+
+    /// <summary>
+    /// Creates a --trust-config option that accepts the destination_path in the ACD's _L5xGit.yml for this run
+    /// without asking the user to confirm it. Intended for scripted use where the caller wrote the file itself.
+    /// </summary>
+    public static Option<bool> TrustConfig() => new("--trust-config")
+    {
+        Description = "Use the destination_path from the ACD's _L5xGit.yml without confirming it, even if it has not been " +
+                      "confirmed for this ACD on this computer. Only use this for configuration files you wrote yourself.",
+    };
 }
