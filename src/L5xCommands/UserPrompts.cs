@@ -55,6 +55,10 @@ internal static class UserPrompts
 
             logger?.Status(configFilePath, "Saving configuration file...");
             config.Save(configFilePath);
+            if (!TrustedDestinations.ForCurrentUser().TryTrust(acdPath, config.DestinationPath, out var trustError))
+            {
+                Console.Error.WriteLine($"Warning: could not record the approved destination ({trustError}). 'l5xgit difftool' will ask you to approve it.");
+            }
         }
 
         return config;
@@ -114,6 +118,16 @@ internal static class UserPrompts
         Console.WriteLine("");
         Console.WriteLine($"No Git repository found at '{directory}'.");
         return PromptYesNo("Would you like to create the directory and initialize a new Git repository?");
+    }
+
+    public static bool PromptToTrustDestination(string acdPath, string configFilePath, string destinationPath, string repoRoot)
+    {
+        Console.WriteLine("");
+        Console.WriteLine($"'{configFilePath}' asks to use a Git repository you have not approved for '{acdPath}':");
+        Console.WriteLine($"  Destination:     {destinationPath}");
+        Console.WriteLine($"  Repository root: {repoRoot}");
+        Console.WriteLine("This file travels with the project folder. Only approve it if you created this repository yourself.");
+        return PromptYesNo("Do you want to use this repository for this ACD?");
     }
 
     public static string PromptForCommitMessage()

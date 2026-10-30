@@ -63,6 +63,10 @@ public static class Commit
 
             logger?.Status(configFilePath, "Saving configuration file...");
             config.Save(configFilePath);
+            if (!TrustedDestinations.ForCurrentUser().TryTrust(acdPath, destPath, out var trustError))
+            {
+                Console.Error.WriteLine($"Warning: could not record the approved destination ({trustError}). 'l5xgit difftool' will ask you to approve it.");
+            }
 
             await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck);
         }
