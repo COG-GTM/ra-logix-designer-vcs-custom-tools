@@ -8,9 +8,24 @@ internal sealed class PathGuard : IDisposable
 {
     private readonly Semaphore semaphore;
 
+    // Session-local and current-user-only, so another account cannot pre-create or hold the lock.
+    private static readonly NamedWaitHandleOptions SemaphoreOptions = new()
+    {
+        CurrentUserOnly = true,
+        CurrentSessionOnly = true,
+    };
+
     private PathGuard(string path)
     {
-        semaphore = new Semaphore(1, 1, GetSemaphoreName(path));
+        try
+        {
+            semaphore = new Semaphore(1, 1, GetSemaphoreName(path), SemaphoreOptions);
+        }
+        catch (Exception ex) when (ex is WaitHandleCannotBeOpenedException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Unable to create lock for \"{Path.GetFullPath(path)}\": a lock object with the same name exists but is not owned by the current user.", ex);
+        }
     }
 
     private bool Acquire(int millisecondsTimeout) => semaphore.WaitOne(millisecondsTimeout);
@@ -22,7 +37,7 @@ internal sealed class PathGuard : IDisposable
         using var sha256 = SHA256.Create();
         var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(Path.GetFullPath(path)));
         var uniqueString = Convert.ToHexString(hashBytes);
-        return @$"Global\L5xSemaphore_{uniqueString}";
+        return $"L5xSemaphore_{uniqueString}";
     }
 
     public static async Task Guard(string path, int millisecondsTimeout, string timeoutExceptionText, Func<Task> action)
