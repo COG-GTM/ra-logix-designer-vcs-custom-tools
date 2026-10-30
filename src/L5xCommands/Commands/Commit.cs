@@ -22,7 +22,7 @@ public static class Commit
             command.Options.Add(acdOption);
             command.Options.Add(unsafeSkipDependencyCheckOption);
 
-            command.SetAction(parseResult => 
+            command.SetAction((parseResult, cancellationToken) => 
             {
                 var acdPath = parseResult.GetValue(acdOption) ?? throw new ArgumentNullException(nameof(acdOption));
                 var unsafeSkipDependencyCheck = parseResult.GetValue(unsafeSkipDependencyCheckOption);
@@ -34,7 +34,7 @@ public static class Commit
         }
     }
 
-    private static async Task Execute(string acdPath, bool unsafeSkipDependencyCheck)
+    private static async Task<int> Execute(string acdPath, bool unsafeSkipDependencyCheck)
     {
         var logger = new StdOutEventLogger();
         var configFilePath = Paths.GetL5xConfigFilePathFromAcdPath(acdPath);
@@ -51,7 +51,7 @@ public static class Commit
 
             var gitService = EnsureGitRepo(destPath, logger);
             if (gitService is null)
-                return;
+                return 1;
 
             var promptForCommitMessage = UserPrompts.PromptForCommitMessageRequiredOnEachCommit();
 
@@ -64,16 +64,16 @@ public static class Commit
             logger?.Status(configFilePath, "Saving configuration file...");
             config.Save(configFilePath);
 
-            await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck);
+            return await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck) ? 0 : 1;
         }
         else
         {
             // Existing config — ensure git repo still exists.
             var gitService = EnsureGitRepo(config.DestinationPath, logger);
             if (gitService is null)
-                return;
+                return 1;
 
-            await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck);
+            return await RunCommit(acdPath, config, gitService, logger, unsafeSkipDependencyCheck) ? 0 : 1;
         }
     }
 
@@ -97,16 +97,16 @@ public static class Commit
         return gitService;
     }
 
-    private static async Task RunCommit(string acdPath, L5xGitConfig config, IGitService gitService, IOperationEvent? logger, bool unsafeSkipDependencyCheck)
+    private static Task<bool> RunCommit(string acdPath, L5xGitConfig config, IGitService gitService, IOperationEvent? logger, bool unsafeSkipDependencyCheck)
     {
-        await PathGuard.Guard(
+        return PathGuard.Guard(
             path: config.DestinationPath,
             millisecondsTimeout: 0,
             timeoutExceptionText: $"Unable to acquire lock on \"{config.DestinationPath}\". Another instance of this process may be running.",
-            action: async () =>
+            func: () =>
             {
                 var commitMessage = UserPrompts.GetCommitMessagePromptIfNeeded(config);
-                await CommitFromAcd(acdPath, config, commitMessage, gitService, logger, unsafeSkipDependencyCheck);
+                return CommitFromAcd(acdPath, config, commitMessage, gitService, logger, unsafeSkipDependencyCheck);
             });
     }
 
@@ -116,6 +116,13 @@ public static class Commit
         if (!UserPrompts.ConfirmSchemaUpgrade(config.DestinationPath, force: false))
         {
             logger?.Error(config.DestinationPath, "Commit canceled without upgrading the exploded schema.");
+            return false;
+        }
+
+        // Checked before anything is written or staged so a refusal leaves the user's index untouched.
+        var contentDir = Paths.GetExplodedSubDir(config.DestinationPath);
+        if (HasUnrelatedStagedPaths(gitService, contentDir, config.DestinationPath, logger))
+        {
             return false;
         }
 
@@ -133,12 +140,25 @@ public static class Commit
 
         logger?.Status(config.DestinationPath, "Commit message is:" + System.Environment.NewLine + commitMessage);
 
-        var staged = gitService.Stage(config.DestinationPath);
+        if (!IsSamePath(gitService.RepoRoot, config.DestinationPath))
+        {
+            logger?.Status(config.DestinationPath, $"Using Git repository at \"{gitService.RepoRoot}\".");
+        }
+
+        // Only stage the content the tool generated, never other files the user keeps in the destination folder.
+        var staged = gitService.Stage(contentDir);
         if (!staged)
         {
             logger?.Error(config.DestinationPath, "Repository is not in an appropriate state to stage changes.");
             return false;
         }
+
+        // The index may have changed while the ACD was being converted.
+        if (HasUnrelatedStagedPaths(gitService, contentDir, config.DestinationPath, logger))
+        {
+            return false;
+        }
+
         var commit = await gitService.CommitAsync(commitMessage);
         if (commit is null)
         {
@@ -151,6 +171,30 @@ public static class Commit
         }
 
         return true;
+    }
+
+    static bool HasUnrelatedStagedPaths(IGitService gitService, string contentDir, string destinationPath, IOperationEvent? logger)
+    {
+        var unrelatedStagedPaths = gitService.GetStagedPathsOutside(contentDir);
+        if (unrelatedStagedPaths.Count == 0)
+        {
+            return false;
+        }
+
+        logger?.Error(destinationPath,
+            $"The Git index already contains staged changes outside \"{contentDir}\". Commit or unstage them before running l5xgit commit:"
+            + System.Environment.NewLine
+            + string.Join(System.Environment.NewLine, unrelatedStagedPaths.Select(path => "  " + path)));
+        return true;
+    }
+
+    static bool IsSamePath(string left, string right)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+            comparison);
     }
 
     static void ExplodeL5x(string l5xFilePath, string destinationPath, bool unsafeSkipDependencyCheck)

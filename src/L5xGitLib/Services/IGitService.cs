@@ -17,6 +17,11 @@ public interface IGitService : IDisposable
     bool Stage(string folderPath);
 
     /// <summary>
+    /// Returns the repository-relative paths of changes staged in the index that are not under the specified folder.
+    /// </summary>
+    IReadOnlyList<string> GetStagedPathsOutside(string folderPath);
+
+    /// <summary>
     /// Asynchronously stages all changes under the specified folder path.
     /// </summary>
     Task AddAsync(string folderPath);
